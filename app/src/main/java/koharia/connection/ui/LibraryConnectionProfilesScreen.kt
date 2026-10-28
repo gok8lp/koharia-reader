@@ -314,8 +314,11 @@ class LibraryConnectionProfilesScreen(
                         ) {
                             Text(
                                 stringResource(
-                                    if (isBookConnection) MR.strings.flugel_book_connection_remove
-                                    else MR.strings.flugel_book_connection_set,
+                                    if (isBookConnection) {
+                                        MR.strings.flugel_book_connection_remove
+                                    } else {
+                                        MR.strings.flugel_book_connection_set
+                                    },
                                 ),
                             )
                         }
