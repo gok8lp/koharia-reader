@@ -17,6 +17,7 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
@@ -35,6 +36,9 @@ class ConnectionAddressVerificationTest {
     private var malformedAuthResponse = false
     private var redirectInternal = false
     private var blockInternal = false
+    private var anonymousStatus = 200
+    private var anonymousBody: String? = null
+    private val anonymousSecrets = CopyOnWriteArrayList<String?>()
     private val internalRead = CompletableDeferred<Unit>()
     private val publicServer = server(false)
     private val internalServer = server(true)
@@ -106,6 +110,43 @@ class ConnectionAddressVerificationTest {
         assertAuthFailure()
     }
 
+    @Test
+    fun `failed anonymous validation prevents all authenticated calls and writes`() = runBlocking {
+        for (provider in ConnectionAddressVerification.Provider.entries) {
+            for (status in listOf(401, 403, 200)) {
+                anonymousStatus = status
+                anonymousBody = "{}"
+                assertEquals(ConnectionAddressVerification.Reason.UNAVAILABLE, failure(provider))
+            }
+        }
+        assertTrue(requests.isEmpty())
+        assertTrue(anonymousSecrets.all { it == null })
+        assertTrue(publicStore.isEmpty())
+        assertTrue(internalStore.isEmpty())
+    }
+
+    @Test
+    fun `valid public credentials can be saved while optional LAN remains unverified`() = runBlocking {
+        anonymousStatus = 503
+        verification.verifyPublicKomga(public, Headers.headersOf("Authorization", "fixture"))
+        assertFalse(ConnectionAddressVerification.hasAnonymousServer(ConnectionServerProbe.KOMGA, internal))
+        assertEquals(listOf("public GET /api/v1/libraries"), requests)
+        assertTrue(anonymousSecrets.all { it == null })
+        assertTrue(publicStore.isEmpty())
+    }
+
+    @Test
+    fun `unavailable LAN never excuses rejected public credentials`() = runBlocking {
+        anonymousStatus = 503
+        rejectPublicAuth = true
+        val failure = runCatching {
+            verification.verifyPublicKomga(public, Headers.headersOf("Authorization", "fixture"))
+        }.exceptionOrNull() as ConnectionAddressVerification.Failure
+        assertEquals(ConnectionAddressVerification.Reason.AUTHENTICATION, failure.reason)
+        assertEquals(listOf("public GET /api/v1/libraries"), requests)
+        assertTrue(anonymousSecrets.isEmpty())
+    }
+
     private suspend fun assertAuthFailure() {
         assertEquals(
             ConnectionAddressVerification.Reason.AUTHENTICATION,
@@ -170,7 +211,20 @@ class ConnectionAddressVerificationTest {
 
     private fun server(internal: Boolean): HttpServer =
         HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
-            createContext("/api/") { exchange ->
+            createContext("/") { exchange ->
+                if (exchange.requestURI.path in listOf("/manifest.json", "/api/info")) {
+                    anonymousSecrets += exchange.requestHeaders.getFirst("Authorization")
+                    val proof = anonymousBody ?: if (exchange.requestURI.path == "/manifest.json") {
+                        """{"name":"Komga","short_name":"Komga","display":"standalone"}"""
+                    } else {
+                        """{"version":"0.9.70","server_tracks_progress":true,"authenticated_progress":true,"archives_per_page":100}"""
+                    }
+                    val bytes = proof.toByteArray()
+                    exchange.sendResponseHeaders(anonymousStatus, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                    exchange.close()
+                    return@createContext
+                }
                 val store = if (internal) internalStore else publicStore
                 val path = exchange.requestURI.path
                 val method = exchange.requestMethod
@@ -206,6 +260,12 @@ class ConnectionAddressVerificationTest {
                             }
                             code = 204
                         }
+                    }
+                } else if (path == "/api/v1/libraries" && method == "GET") {
+                    if (exchange.requestHeaders.getFirst("Authorization") != "fixture" || rejectPublicAuth) {
+                        code = 401
+                    } else {
+                        response = JsonArray(emptyList())
                     }
                 } else if (path == "/api/plugins/metadata" && method == "GET") {
                     if (exchange.requestHeaders.getFirst("Authorization") != "fixture" ||

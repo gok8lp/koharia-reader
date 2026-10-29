@@ -1,46 +1,193 @@
-name: Flugel test APK
+name: Flugel signed APK
 
 on:
   workflow_dispatch:
     inputs:
-      surum:
-        description: 'Yayin etiketi (or. v0.1.1-test)'
+      deploy_server:
+        description: 'Onaylanan sunucuya SSH ile yayinla (ilk kurulumdan sonra)'
+        type: boolean
         required: true
-        default: v0.1.1-test
+        default: false
+
+# Flugel: serialize releases so a slower old run cannot replace a newer manifest.
+concurrency:
+  group: flugel-personal-release
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  FLUGEL_UPDATE_BASE_URL: https://flugelserver.tail42f1f4.ts.net:10444
 
 jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: write
+    outputs:
+      version_code: ${{ steps.version.outputs.code }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
+          # Gradle 9.8 needs runtime 21; Android bytecode still targets Java 17.
           java-version-file: .github/.java-version
           distribution: temurin
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
-      - name: Build installable debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
-      - name: Select and verify universal APK
+      - name: Allocate monotonic personal-build version
+        id: version
+        shell: bash
+        run: echo "code=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+      - name: Restore stable signing key from Secrets
+        env:
+          FLUGEL_KEYSTORE_BASE64: ${{ secrets.FLUGEL_KEYSTORE_BASE64 }}
+          FLUGEL_KEYSTORE_PASSWORD: ${{ secrets.FLUGEL_KEYSTORE_PASSWORD }}
+          FLUGEL_KEY_ALIAS: ${{ secrets.FLUGEL_KEY_ALIAS }}
+          FLUGEL_KEY_PASSWORD: ${{ secrets.FLUGEL_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          names = ("FLUGEL_KEYSTORE_BASE64", "FLUGEL_KEYSTORE_PASSWORD", "FLUGEL_KEY_ALIAS", "FLUGEL_KEY_PASSWORD")
+          if any(not os.environ.get(name) for name in names):
+              raise SystemExit("Configure all FLUGEL_KEYSTORE_* signing Secrets before building")
+          directory = Path(os.environ["RUNNER_TEMP"]) / "flugel-signing"
+          directory.mkdir(mode=0o700, exist_ok=True)
+          keystore = directory / "flugel.jks"
+          keystore.write_bytes(base64.b64decode(os.environ["FLUGEL_KEYSTORE_BASE64"], validate=True))
+          keystore.chmod(0o600)
+          values = {"storeFile": str(keystore), "storePassword": os.environ["FLUGEL_KEYSTORE_PASSWORD"],
+                    "keyAlias": os.environ["FLUGEL_KEY_ALIAS"], "keyPassword": os.environ["FLUGEL_KEY_PASSWORD"]}
+          def escape(value):
+              encoded = value.encode("utf-16-be")
+              return "".join("\\u" + encoded[index:index + 2].hex() for index in range(0, len(encoded), 2))
+          properties = Path("keystore.properties")
+          properties.write_text("".join(key + "=" + escape(value) + "\n" for key, value in values.items()), encoding="ascii")
+          properties.chmod(0o600)
+          PY
+      - name: Validate formatting, Kotlin and unit tests
+        env:
+          FLUGEL_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/flugel -p 'test_*.py' -v
+          ./gradlew spotlessCheck :app:compileDebugKotlin :app:testFlugelDebugUnitTest \
+            -PflugelVersionCode="$FLUGEL_VERSION_CODE" --stacktrace
+      - name: Build signed personal APK
+        env:
+          FLUGEL_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew :app:assembleFlugelRelease -PflugelVersionCode="$FLUGEL_VERSION_CODE" --stacktrace
+      - name: Verify signature and package immutable release
+        env:
+          FLUGEL_VERSION_CODE: ${{ steps.version.outputs.code }}
+        shell: bash
         run: |
           set -euo pipefail
-          mapfile -t apks < <(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*-debug.apk' \
-            ! -name '*arm64-v8a*' ! -name '*armeabi-v7a*' ! -name '*x86*' | sort)
-          if (( ${#apks[@]} != 1 )); then
-            echo "Expected exactly one universal debug APK, found ${#apks[@]}" >&2
-            find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -printf '%f\n'
-            exit 1
-          fi
-          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify --verbose "${apks[0]}"
-          cp -- "${apks[0]}" Flugel-Manga-test.apk
-          sha256sum Flugel-Manga-test.apk > Flugel-Manga-test.apk.sha256
-      - name: Publish prerelease
+          metadata=app/build/outputs/apk/flugel/release/output-metadata.json
+          apk=$(python3 - "$metadata" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          elements = [element for element in json.loads(path.read_text())["elements"] if not element.get("filters")]
+          if len(elements) != 1:
+              raise SystemExit("Expected exactly one universal release APK")
+          print(path.parent / elements[0]["outputFile"])
+          PY
+          )
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$build_tools/apksigner" verify --verbose "$apk"
+          python3 tools/flugel/release.py package --metadata "$metadata" \
+            --version-code "$FLUGEL_VERSION_CODE" --base-url "$FLUGEL_UPDATE_BASE_URL" \
+            --output .test-artifacts/flugel-release
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- keystore.properties "$RUNNER_TEMP/flugel-signing/flugel.jks"
+          rmdir -- "$RUNNER_TEMP/flugel-signing" 2>/dev/null || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: flugel-release
+          path: .test-artifacts/flugel-release/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish prerelease for the exact built commit
         env:
           GH_TOKEN: ${{ github.token }}
+          FLUGEL_VERSION_CODE: ${{ steps.version.outputs.code }}
+        shell: bash
         run: |
-          gh release create "${{ inputs.surum }}" Flugel-Manga-test.apk Flugel-Manga-test.apk.sha256 \
-            --target "$GITHUB_SHA" --title "Flugel Manga ${{ inputs.surum }}" --prerelease \
-            --notes 'Koharia tabanlı Android test APK. Komga/Kavita bağlantısını uygulamada kurun; kimlik bilgileri APK içine gömülü değildir. Fiziksel cihaz testi bekleniyor.'
+          set -euo pipefail
+          cat > .test-artifacts/flugel-release/notes.md <<'NOTES'
+          <!-- koharia-release-notes:zh -->
+          Flugel 个人版本：预设 Komga/Kavita 地址，首次使用时输入凭据；通过 HTTPS 检查更新并验证 APK 的 SHA-256。物理设备测试待完成。
+          <!-- koharia-release-notes:en -->
+          Personal Flugel build with preset Komga/Kavita addresses and first-use credential entry. Updates use HTTPS and mandatory APK SHA-256 verification. Physical-device validation remains pending.
+          <!-- koharia-release-notes:end -->
+          Türkçe: İlk açılışta sunucu hesaplarınızla giriş yapın. APK sabit kişisel anahtarla imzalanmıştır; hesap parolaları APK içinde bulunmaz.
+          NOTES
+          gh release create "flugel-$FLUGEL_VERSION_CODE" \
+            .test-artifacts/flugel-release/Flugel-Manga.apk \
+            .test-artifacts/flugel-release/Flugel-Manga.apk.sha256 \
+            .test-artifacts/flugel-release/latest.json \
+            --target "$GITHUB_SHA" --title "Flugel Manga $FLUGEL_VERSION_CODE" --prerelease \
+            --notes-file .test-artifacts/flugel-release/notes.md
+
+  deploy:
+    # Flugel: leave disabled until the user has approved and installed the server-side publisher.
+    if: ${{ inputs.deploy_server }}
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: flugel-release
+          path: .test-artifacts/flugel-release
+      - name: Join tailnet and accept the server's LAN subnet route
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          args: --accept-routes
+          ping: 100.86.88.1
+      - name: Publish using a restricted SSH key and pinned server host key
+        env:
+          FLUGEL_DEPLOY_SSH_KEY: ${{ secrets.FLUGEL_DEPLOY_SSH_KEY }}
+          FLUGEL_DEPLOY_KNOWN_HOSTS: ${{ secrets.FLUGEL_DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          directory = Path(os.environ["RUNNER_TEMP"]) / "flugel-ssh"
+          directory.mkdir(mode=0o700, exist_ok=True)
+          for name, filename in (("FLUGEL_DEPLOY_SSH_KEY", "key"), ("FLUGEL_DEPLOY_KNOWN_HOSTS", "known_hosts")):
+              value = os.environ.get(name, "").strip()
+              if not value:
+                  raise SystemExit("Configure the deployment SSH Secrets before enabling deployment")
+              path = directory / filename
+              path.write_text(value + "\n", encoding="utf-8")
+              path.chmod(0o600)
+          PY
+          ssh -i "$RUNNER_TEMP/flugel-ssh/key" -o IdentitiesOnly=yes -o IdentityAgent=none \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/flugel-ssh/known_hosts" \
+            -o ConnectTimeout=20 flugel@192.168.0.15 publish \
+            < .test-artifacts/flugel-release/deploy.tar
+          curl --fail --silent --show-error --proto '=https' \
+            "$FLUGEL_UPDATE_BASE_URL/latest.json" -o .test-artifacts/flugel-release/published.json
+          cmp .test-artifacts/flugel-release/latest.json .test-artifacts/flugel-release/published.json
+      - name: Remove deployment key
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/flugel-ssh/key" "$RUNNER_TEMP/flugel-ssh/known_hosts"
+          rmdir -- "$RUNNER_TEMP/flugel-ssh" 2>/dev/null || true

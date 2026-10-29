@@ -6,6 +6,8 @@ android {
     namespace = "tachiyomi.macrobenchmark"
 
     defaultConfig {
+        // Flugel: benchmark the standard app when the target exposes multiple distributions.
+        missingDimensionStrategy("distribution", "standard")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["androidx.benchmark.enabledRules"] = "BaselineProfile"
     }

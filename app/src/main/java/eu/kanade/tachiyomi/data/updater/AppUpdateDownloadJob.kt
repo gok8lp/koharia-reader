@@ -14,6 +14,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
+import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -30,6 +31,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.internal.http2.ErrorCode
 import okhttp3.internal.http2.StreamResetException
@@ -41,7 +43,6 @@ import uy.kohesive.injekt.injectLazy
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -51,7 +52,10 @@ class AppUpdateDownloadJob(private val context: Context, workerParams: WorkerPar
     private val notifier = AppUpdateNotifier(context)
     private val network: NetworkHelper by injectLazy()
     private val downloadClient by lazy {
-        network.client.newBuilder()
+        // Flugel: personal update hosts must not receive the reader's stored cookies/interceptors.
+        (if (BuildConfig.FLUGEL_PERSONAL_BUILD) OkHttpClient.Builder() else network.client.newBuilder())
+            // Flugel: never follow an HTTPS update redirect to cleartext HTTP.
+            .followSslRedirects(false)
             .callTimeout(0, TimeUnit.MILLISECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .build()
@@ -297,8 +301,9 @@ class AppUpdateDownloadJob(private val context: Context, workerParams: WorkerPar
         }
 
         spec.expectedSha256?.let { expectedSha256 ->
-            val actualSha256 = file.sha256()
-            if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+            try {
+                FlugelUpdateManifest.verifyDownload(file, expectedSha256)
+            } catch (_: IllegalArgumentException) {
                 throw DownloadIntegrityException("App update SHA-256 does not match release metadata")
             }
         }
@@ -471,34 +476,35 @@ class AppUpdateDownloadJob(private val context: Context, workerParams: WorkerPar
                 ?: listOfNotNull(getString(EXTRA_DOWNLOAD_URL))
             if (urls.isEmpty()) return null
 
+            // Flugel: an absent/malformed hash must reject the job, never disable validation.
+            val hash = try {
+                FlugelUpdateManifest.requireDownloadHash(
+                    getString(EXTRA_EXPECTED_SHA256),
+                    mandatory = BuildConfig.FLUGEL_PERSONAL_BUILD,
+                )
+            } catch (_: IllegalArgumentException) {
+                return null
+            }
+            if (BuildConfig.FLUGEL_PERSONAL_BUILD) {
+                try {
+                    urls.forEach(FlugelUpdateManifest::requireSecureUrl)
+                } catch (_: IllegalArgumentException) {
+                    return null
+                }
+            }
+
             return DownloadSpec(
                 urls = urls.distinct(),
                 title = getString(EXTRA_DOWNLOAD_TITLE).orEmpty().ifBlank { defaultTitle },
                 expectedSize = getLong(EXTRA_EXPECTED_SIZE, -1L).takeIf { it > 0L },
-                expectedSha256 = getString(EXTRA_EXPECTED_SHA256)
-                    ?.takeIf { SHA256_REGEX.matches(it) },
+                expectedSha256 = hash,
             )
         }
-
-        private val SHA256_REGEX = Regex("[0-9a-fA-F]{64}")
 
         private fun String.safeHost(): String = toHttpUrlOrNull()?.host ?: "invalid"
 
         private fun Throwable.isCancellation(): Boolean {
             return this is StreamResetException && errorCode == ErrorCode.CANCEL
-        }
-
-        private fun File.sha256(): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            inputStream().buffered().use { input ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
         }
 
         private fun PackageInfo.signaturesSha256(): List<String> {

@@ -1,6 +1,7 @@
 package koharia.komga.api
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -51,6 +52,13 @@ class KomgaSseClient(
     private var progressSyncJob: Job? = null
     private var connectionGeneration = 0L
     private var activeTarget: KomgaSseConnectionTarget? = null
+
+    // Flugel: retry stream disconnects independently of network/lifecycle notifications.
+    private val reconnectController = KomgaSseReconnectController(
+        scopeProvider = { appScope },
+        elapsedRealtime = SystemClock::elapsedRealtime,
+        reconnect = ::checkAndReconnect,
+    )
     private val eventSourceClient get() =
         // Keep the shared connection pool/interceptors, but do not apply the ordinary request
         // timeouts to a server-sent event stream that is expected to stay open indefinitely.
@@ -112,7 +120,13 @@ class KomgaSseClient(
     }
 
     private fun connect() {
-        if (isConnecting || eventSource != null) return
+        // Flugel: serialize factory callbacks with source assignment and lifecycle cancellation.
+        synchronized(progressSyncLock) { connectLocked() }
+    }
+
+    private fun connectLocked() {
+        // Flugel: connectivity notifications must not bypass an already scheduled backoff.
+        if (isConnecting || eventSource != null || reconnectController.isScheduled) return
         isConnecting = true
 
         val sourceId = sourceIdProvider()
@@ -156,9 +170,13 @@ class KomgaSseClient(
             request,
             object : EventSourceListener() {
                 override fun onOpen(eventSource: EventSource, response: Response) {
-                    if (!isCurrentConnection(target)) return
+                    // Flugel: a canceled source must not update a replacement stream's retry state.
+                    synchronized(progressSyncLock) {
+                        if (activeTarget != target || this@KomgaSseClient.eventSource !== eventSource) return
+                        reconnectController.onOpen()
+                        isConnecting = false
+                    }
                     logcat(LogPriority.INFO) { "Komga SSE connected" }
-                    isConnecting = false
                 }
 
                 override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -168,28 +186,35 @@ class KomgaSseClient(
                 }
 
                 override fun onClosed(eventSource: EventSource) {
-                    if (!finishConnection(target, eventSource)) return
-                    logcat(LogPriority.INFO) { "Komga SSE closed" }
+                    if (finishConnection(target, eventSource) == null) return
+                    logcat(LogPriority.DEBUG) { "Komga SSE closed; reconnect scheduled" }
                 }
 
                 override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                    if (!finishConnection(target, eventSource)) return
-                    logcat(LogPriority.ERROR, t) { "Komga SSE failure: ${response?.code}" }
+                    val retry = finishConnection(target, eventSource) ?: return
+                    // Flugel: proxy idle timeouts after a stable stream are routine reconnects.
+                    if (retry.wasStable && (response == null || response.isSuccessful)) {
+                        logcat(LogPriority.DEBUG) { "Komga SSE stream ended; reconnect scheduled" }
+                    } else {
+                        logcat(LogPriority.WARN, t) { "Komga SSE failure: ${response?.code}; reconnect scheduled" }
+                    }
                 }
             },
         )
     }
 
     private fun disconnect(reason: String? = null) {
-        val hadActiveConnection = eventSource != null || isConnecting
-        val sourceToCancel = eventSource
-        eventSource = null
-        isConnecting = false
-        val syncJob = synchronized(progressSyncLock) {
+        // Flugel: invalidate the target before cancel() can deliver a stale failure callback.
+        val (sourceToCancel, syncJob, hadActiveConnection) = synchronized(progressSyncLock) {
+            val hadActiveConnection = eventSource != null || isConnecting
+            val sourceToCancel = eventSource
+            eventSource = null
+            isConnecting = false
+            reconnectController.cancel()
             connectionGeneration++
             activeTarget = null
             progressSyncQueue.clear()
-            progressSyncJob.also { progressSyncJob = null }
+            Triple(sourceToCancel, progressSyncJob.also { progressSyncJob = null }, hadActiveConnection)
         }
         syncJob?.cancel()
         sourceToCancel?.cancel()
@@ -209,17 +234,22 @@ class KomgaSseClient(
     private fun isCurrentConnection(target: KomgaSseConnectionTarget): Boolean =
         synchronized(progressSyncLock) { activeTarget == target }
 
-    private fun finishConnection(target: KomgaSseConnectionTarget, source: EventSource): Boolean {
-        val syncJob = synchronized(progressSyncLock) {
-            if (activeTarget != target || eventSource !== source) return false
+    private fun finishConnection(
+        target: KomgaSseConnectionTarget,
+        source: EventSource,
+    ): KomgaSseRetry? {
+        val (syncJob, retry) = synchronized(progressSyncLock) {
+            if (activeTarget != target || eventSource !== source) return null
             activeTarget = null
             eventSource = null
             isConnecting = false
             progressSyncQueue.clear()
-            progressSyncJob.also { progressSyncJob = null }
+            val syncJob = progressSyncJob.also { progressSyncJob = null }
+            // Flugel: create the retry while holding the connection lock so disconnect can cancel it.
+            syncJob to reconnectController.schedule()
         }
         syncJob?.cancel()
-        return true
+        return retry
     }
 
     private fun handleEvent(target: KomgaSseConnectionTarget, type: String?, data: String) {

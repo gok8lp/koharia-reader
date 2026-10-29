@@ -10,7 +10,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
@@ -54,8 +53,8 @@ class SmangaAddressRoutingTest {
                 { publicAddress },
                 { internalAddress },
                 { wifi },
-                "deploy/status",
-                authenticateProbe = false,
+                // Protocol fixture supplies explicit proof; production rejects generic Smanga status bodies.
+                koharia.connection.ConnectionServerProbe("deploy/status") { it == """{"code":200}""" },
             )
         } else {
             null
@@ -219,38 +218,24 @@ class SmangaAddressRoutingTest {
     }
 
     @Test
-    fun `saving dual addresses proves shared login token and validates OPDS on both without LAN login`() = runTest {
-        val account = api(routed = false).validate(internalAddress.removeSuffix("api/"))
-        assertEquals(3L, account.id)
-        assertEquals(1, logins.get())
-        assertEquals(listOf("/lan/api/user/me", "/lan/api/opds"), internalRequests.map { it.path })
-        assertEquals(token, internalRequests.first().token)
-        assertFalse(internalRequests.any { it.method != "GET" })
-    }
-
-    @Test
-    fun `another database cannot pass by logging in again with identical credentials`() = runTest {
-        acceptsToken = false
+    fun `generic deployment response cannot authorize LAN validation or expose credentials`() = runTest {
         val error = runCatching { api(routed = false).validate(internalAddress) }.exceptionOrNull()
         assertEquals(
-            ConnectionAddressVerification.Reason.MISMATCH,
+            ConnectionAddressVerification.Reason.UNAVAILABLE,
             (error as ConnectionAddressVerification.Failure).reason,
         )
-        assertEquals(1, logins.get())
-        assertEquals(listOf("/lan/api/user/me"), internalRequests.map { it.path })
+        assertEquals(0, logins.get())
+        assertTrue(publicRequests.isEmpty())
+        assertEquals(listOf("/lan/api/deploy/status"), internalRequests.map { it.path })
+        assertTrue(internalRequests.all { it.auth == null && it.token == null && it.cookie == null })
     }
 
     @Test
-    fun `a different account or disabled LAN OPDS cannot pass address validation`() = runTest {
-        internalUserId = 4
-        val mismatch = runCatching { api(routed = false).validate(internalAddress) }.exceptionOrNull()
-        assertEquals(
-            ConnectionAddressVerification.Reason.MISMATCH,
-            (mismatch as ConnectionAddressVerification.Failure).reason,
-        )
-        internalUserId = 3
-        internalOpdsEnabled = false
-        val unavailable = runCatching { api(routed = false).validate(internalAddress) }.exceptionOrNull()
-        assertEquals(SmangaException.Reason.OPDS_DISABLED, (unavailable as SmangaException).reason)
+    fun `public-only validation still checks the account and OPDS`() = runTest {
+        assertEquals(3L, api(routed = false).validate().id)
+        assertEquals(1, logins.get())
+        assertTrue(publicRequests.any { it.path.endsWith("/user/me") })
+        assertTrue(publicRequests.any { it.path.endsWith("/opds") })
+        assertTrue(internalRequests.isEmpty())
     }
 }

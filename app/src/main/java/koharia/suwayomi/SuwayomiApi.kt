@@ -872,6 +872,11 @@ class SuwayomiApi(
     suspend fun verifyInternal() {
         val lan = internal ?: return
         if (base == lan) return
+        // Flugel: do not authenticate to an optional address without anonymous product evidence.
+        ConnectionAddressVerification.requireAnonymousServer(
+            koharia.connection.ConnectionServerProbe.SUWAYOMI,
+            lan.toString(),
+        )
         val direct = SuwayomiApi(rawClient, json, lan.toString(), mode, username, password)
         val key = "koharia.connection.verify.${UUID.randomUUID()}"
         val nonce = UUID.randomUUID().toString()

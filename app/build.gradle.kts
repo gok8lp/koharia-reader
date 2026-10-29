@@ -4,6 +4,7 @@ import koharia.gradle.getBuildTime
 import koharia.gradle.getLatestCommitCount
 import koharia.gradle.getLatestCommitSha
 import koharia.gradle.tasks.ReplaceShortcutsPlaceholderTask
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -51,6 +52,18 @@ fun requireKeystoreProperty(name: String): String {
         ?: error("Missing `$name` in ${keystorePropertiesFile.name}")
 }
 
+// Flugel: optional personal services are public configuration, never credentials.
+fun flugelUrlProperty(name: String, default: String = ""): String {
+    val value = providers.gradleProperty(name).getOrElse(default).trim()
+    if (value.isNotEmpty()) {
+        val uri = URI(value)
+        require(uri.scheme == "https" && uri.host != null && uri.userInfo == null) {
+            "$name must be an HTTPS URL without credentials"
+        }
+    }
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+
 android {
     namespace = "eu.kanade.tachiyomi"
 
@@ -83,8 +96,40 @@ android {
         buildConfigField("boolean", "TELEMETRY_INCLUDED", "${Config.includeTelemetry}")
         buildConfigField("boolean", "UPDATER_ENABLED", "${Config.enableUpdater}")
         buildConfigField("boolean", "LANRARAGI_DIAGNOSTICS", "false")
+        // Flugel: the ordinary build has no personal endpoints or first-run provisioning.
+        buildConfigField("boolean", "FLUGEL_PERSONAL_BUILD", "false")
+        buildConfigField("String", "FLUGEL_DOWNLOAD_URL", "\"\"")
+        buildConfigField("String", "FLUGEL_UPLOAD_URL", "\"\"")
+        buildConfigField("String", "FLUGEL_UPDATE_MANIFEST_URL", "\"\"")
 
         testInstrumentationRunner = "koharia.testing.KohariaDeviceTestRunner"
+    }
+
+    // Flugel: keep a stable, separate application ID and a single release signing identity.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("standard") {
+            dimension = "distribution"
+            isDefault = true
+        }
+        create("flugel") {
+            dimension = "distribution"
+            applicationIdSuffix = ".flugel"
+            versionCode = providers.gradleProperty("flugelVersionCode").map(String::toInt).getOrElse(100000)
+                .also { require(it > 0) { "flugelVersionCode must be positive" } }
+            buildConfigField("boolean", "FLUGEL_PERSONAL_BUILD", "true")
+            buildConfigField("boolean", "UPDATER_ENABLED", "true")
+            buildConfigField("String", "FLUGEL_DOWNLOAD_URL", flugelUrlProperty("flugelDownloadUrl"))
+            buildConfigField("String", "FLUGEL_UPLOAD_URL", flugelUrlProperty("flugelUploadUrl"))
+            buildConfigField(
+                "String",
+                "FLUGEL_UPDATE_MANIFEST_URL",
+                flugelUrlProperty(
+                    "flugelUpdateManifestUrl",
+                    "https://flugelserver.tail42f1f4.ts.net:10444/latest.json",
+                ),
+            )
+        }
     }
 
     testOptions {
@@ -249,6 +294,16 @@ kotlin {
     }
 }
 
+// Flugel: preserve the documented verification command while checking both flavors.
+tasks.register("compileDebugKotlin") {
+    dependsOn("compileStandardDebugKotlin", "compileFlugelDebugKotlin")
+}
+
+// Flugel: retain the unfiltered CI task; filtered local runs use a specific flavor.
+tasks.register("testDebugUnitTest") {
+    dependsOn("testStandardDebugUnitTest", "testFlugelDebugUnitTest")
+}
+
 dependencies {
     implementation(libs.pdfium.core)
     implementation(libs.smbj)
@@ -408,7 +463,7 @@ androidComponents {
         resSource.addGeneratedSourceDirectory(replaceShortcutsPlaceholderTask) { it.outputDir }
     }
 
-    onVariants(selector().withFlavor("default" to "standard")) {
+    onVariants(selector().withFlavor("distribution" to "standard")) {
         // Only excluding in standard flavor because this breaks
         // Layout Inspector's Compose tree
         it.packaging.resources.excludes.add("META-INF/*.version")

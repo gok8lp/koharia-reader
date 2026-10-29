@@ -117,21 +117,22 @@ jobs:
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
 
       - name: Build
-        run: ./gradlew assembleRelease -Pinclude-telemetry -Penable-updater
+        run: ./gradlew :app:assembleStandardRelease -Pinclude-telemetry -Penable-updater
 
+      # Flugel: upstream releases explicitly select the standard distribution.
       - name: Verify unsigned APK outputs
         env:
           VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
         run: |
           set -euo pipefail
 
-          release_dir="app/build/outputs/apk/release"
+          release_dir="app/build/outputs/apk/standard/release"
           expected=(
-            "Koharia-v${VERSION_NAME}-release.apk"
-            "Koharia-v${VERSION_NAME}-release-arm64-v8a.apk"
-            "Koharia-v${VERSION_NAME}-release-armeabi-v7a.apk"
-            "Koharia-v${VERSION_NAME}-release-x86.apk"
-            "Koharia-v${VERSION_NAME}-release-x86_64.apk"
+            "Koharia-v${VERSION_NAME}-standardRelease.apk"
+            "Koharia-v${VERSION_NAME}-standardRelease-arm64-v8a.apk"
+            "Koharia-v${VERSION_NAME}-standardRelease-armeabi-v7a.apk"
+            "Koharia-v${VERSION_NAME}-standardRelease-x86.apk"
+            "Koharia-v${VERSION_NAME}-standardRelease-x86_64.apk"
           )
 
           for file in "${expected[@]}"; do
@@ -144,7 +145,7 @@ jobs:
       - name: Sign APK
         uses: r0adkll/sign-android-release@a391126403df92c6a0a3988a829dd47f79b89ed7
         with:
-          releaseDirectory: app/build/outputs/apk/release
+          releaseDirectory: app/build/outputs/apk/standard/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
@@ -159,12 +160,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_dir="app/build/outputs/apk/release"
-          mv "$release_dir/Koharia-v${VERSION_NAME}-release-signed.apk" "Koharia-${RELEASE_TAG}-release.apk"
-          mv "$release_dir/Koharia-v${VERSION_NAME}-release-arm64-v8a-signed.apk" "Koharia-${RELEASE_TAG}-arm64-v8a-release.apk"
-          mv "$release_dir/Koharia-v${VERSION_NAME}-release-armeabi-v7a-signed.apk" "Koharia-${RELEASE_TAG}-armeabi-v7a-release.apk"
-          mv "$release_dir/Koharia-v${VERSION_NAME}-release-x86-signed.apk" "Koharia-${RELEASE_TAG}-x86-release.apk"
-          mv "$release_dir/Koharia-v${VERSION_NAME}-release-x86_64-signed.apk" "Koharia-${RELEASE_TAG}-x86_64-release.apk"
+          release_dir="app/build/outputs/apk/standard/release"
+          mv "$release_dir/Koharia-v${VERSION_NAME}-standardRelease-signed.apk" "Koharia-${RELEASE_TAG}-release.apk"
+          mv "$release_dir/Koharia-v${VERSION_NAME}-standardRelease-arm64-v8a-signed.apk" "Koharia-${RELEASE_TAG}-arm64-v8a-release.apk"
+          mv "$release_dir/Koharia-v${VERSION_NAME}-standardRelease-armeabi-v7a-signed.apk" "Koharia-${RELEASE_TAG}-armeabi-v7a-release.apk"
+          mv "$release_dir/Koharia-v${VERSION_NAME}-standardRelease-x86-signed.apk" "Koharia-${RELEASE_TAG}-x86-release.apk"
+          mv "$release_dir/Koharia-v${VERSION_NAME}-standardRelease-x86_64-signed.apk" "Koharia-${RELEASE_TAG}-x86_64-release.apk"
 
       - name: Upload APKs
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -211,7 +212,7 @@ jobs:
           refresh_args=()
           for attempt in 1 2 3; do
             set +e
-            ./gradlew assembleFoss -Penable-updater "${refresh_args[@]}" 2>&1 | tee "$build_log"
+            ./gradlew :app:assembleStandardFoss -Penable-updater "${refresh_args[@]}" 2>&1 | tee "$build_log"
             build_status=${PIPESTATUS[0]}
             set -e
             if [[ "$build_status" -eq 0 ]]; then
@@ -232,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          apk="app/build/outputs/apk/foss/Koharia-v${VERSION_NAME}-foss.apk"
+          apk="app/build/outputs/apk/standard/foss/Koharia-v${VERSION_NAME}-standardFoss.apk"
           if [[ ! -f "$apk" ]]; then
             echo "::error::Expected APK not found: $apk"
             exit 1
@@ -260,7 +261,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mv "app/build/outputs/apk/foss-signing/Koharia-v${VERSION_NAME}-foss-signed.apk" "Koharia-${RELEASE_TAG}-foss.apk"
+          mv "app/build/outputs/apk/foss-signing/Koharia-v${VERSION_NAME}-standardFoss-signed.apk" "Koharia-${RELEASE_TAG}-foss.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

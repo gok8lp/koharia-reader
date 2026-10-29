@@ -40,6 +40,7 @@ import koharia.connection.ConnectionPagePublication
 import koharia.connection.ConnectionPublicationAdapter
 import koharia.connection.ConnectionRawDownloadAdapter
 import koharia.connection.ConnectionReadStatusAdapter
+import koharia.connection.ConnectionServerProbe
 import koharia.connection.ConnectionSource
 import koharia.connection.ConnectionViewerSettingsAdapter
 import koharia.connection.LibraryConnectionProfile
@@ -242,7 +243,6 @@ class KomgaSource(
 
     suspend fun verifyServerAddresses(store: androidx.preference.PreferenceDataStore) {
         val internalAddress = store.getString(ConnectionAddressRouter.INTERNAL_ADDRESS_KEY, "").orEmpty()
-        if (internalAddress.isBlank()) return
         val publicAddress = store.getString(PREF_ADDRESS, "").orEmpty()
         val mode = store.getString(PREF_AUTH_MODE, null) ?: defaultAuthMode()
         val validationHeaders = Headers.Builder().apply {
@@ -259,9 +259,20 @@ class KomgaSource(
                 if (user.isNotBlank()) set("Authorization", Credentials.basic(user, password))
             }
         }.build()
-        koharia.connection.ConnectionAddressVerification(
+        val verification = koharia.connection.ConnectionAddressVerification(
             Injekt.get<eu.kanade.tachiyomi.network.NetworkHelper>().client,
-        ).verify(
+        )
+        // Flugel: validate the public account first; optional LAN can be filled in while away from home.
+        verification.verifyPublicKomga(publicAddress, validationHeaders)
+        if (internalAddress.isBlank() || !koharia.connection.ConnectionAddressVerification.hasAnonymousServer(
+                // Flugel: anonymous product proof is required before optional LAN credentials.
+                ConnectionServerProbe.KOMGA,
+                internalAddress,
+            )
+        ) {
+            return
+        }
+        verification.verify(
             koharia.connection.ConnectionAddressVerification.Provider.KOMGA,
             publicAddress,
             internalAddress,
@@ -299,7 +310,8 @@ class KomgaSource(
             internalAddress = {
                 preferences.getString(ConnectionAddressRouter.INTERNAL_ADDRESS_KEY, "").orEmpty()
             },
-            probePath = "api/v1/libraries?size=1",
+            // Flugel: anonymous product proof is required before optional LAN credentials.
+            probe = ConnectionServerProbe.KOMGA,
         )
     }
 
@@ -1268,7 +1280,8 @@ class KomgaSource(
                                         application,
                                         { currentAddress },
                                         { currentInternalAddress },
-                                        "api/v1/libraries?size=1",
+                                        // Flugel: anonymous product proof is required before optional LAN credentials.
+                                        ConnectionServerProbe.KOMGA,
                                     ),
                                 )
                                 .addNetworkInterceptor(ConnectionAddressRouter.redirectGuard)

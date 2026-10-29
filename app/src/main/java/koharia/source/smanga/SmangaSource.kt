@@ -38,6 +38,7 @@ import koharia.connection.ConnectionRawDownloadResumePolicy
 import koharia.connection.ConnectionReadStatusAdapter
 import koharia.connection.ConnectionReaderRoutingAdapter
 import koharia.connection.ConnectionRestoreState
+import koharia.connection.ConnectionServerProbe
 import koharia.connection.ConnectionSource
 import koharia.connection.LibraryConnectionProfile
 import koharia.connection.LibraryContentScope
@@ -152,8 +153,8 @@ class SmangaSource(private val context: Context, override val connectionProfile:
                 context,
                 { publicAddress },
                 { internalAddress },
-                "deploy/status",
-                authenticateProbe = false,
+                // Flugel: anonymous product proof is required before optional LAN credentials.
+                ConnectionServerProbe.SMANGA,
             ),
         )
         val catalog = SmangaCatalog(id, accountKey, repository, api, json, ::checkActive)

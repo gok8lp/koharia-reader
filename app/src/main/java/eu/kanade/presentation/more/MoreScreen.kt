@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.TextPreferenceWidget
+import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.ui.more.DownloadQueueState
 import tachiyomi.core.common.DocumentationUrls
 import tachiyomi.i18n.MR
@@ -109,22 +110,26 @@ fun MoreScreen(
                     )
                 }
             }
-            // Flugel: sunucudaki indirici ve yukleme sayfalari (sifreli, tarayicida acilir)
-            item {
-                TextPreferenceWidget(
-                    title = stringResource(MR.strings.flugel_manga_indir),
-                    subtitle = stringResource(MR.strings.flugel_manga_indir_aciklama),
-                    icon = Icons.Outlined.CloudDownload,
-                    onPreferenceClick = { uriHandler.openUri("https://indir.gokalpgoksu.com/") },
-                )
+            // Flugel: services are opt-in build settings; absent services do not appear.
+            if (BuildConfig.FLUGEL_DOWNLOAD_URL.isNotBlank()) {
+                item {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.flugel_manga_indir),
+                        subtitle = stringResource(MR.strings.flugel_manga_indir_aciklama),
+                        icon = Icons.Outlined.CloudDownload,
+                        onPreferenceClick = { uriHandler.openUri(BuildConfig.FLUGEL_DOWNLOAD_URL) },
+                    )
+                }
             }
-            item {
-                TextPreferenceWidget(
-                    title = stringResource(MR.strings.flugel_kutuphaneye_ekle),
-                    subtitle = stringResource(MR.strings.flugel_kutuphaneye_ekle_aciklama),
-                    icon = Icons.Outlined.CloudUpload,
-                    onPreferenceClick = { uriHandler.openUri("https://gokalpgoksu.com/yukle/") },
-                )
+            if (BuildConfig.FLUGEL_UPLOAD_URL.isNotBlank()) {
+                item {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.flugel_kutuphaneye_ekle),
+                        subtitle = stringResource(MR.strings.flugel_kutuphaneye_ekle_aciklama),
+                        icon = Icons.Outlined.CloudUpload,
+                        onPreferenceClick = { uriHandler.openUri(BuildConfig.FLUGEL_UPLOAD_URL) },
+                    )
+                }
             }
             item {
                 TextPreferenceWidget(

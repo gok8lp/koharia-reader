@@ -111,8 +111,11 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         Injekt.importModule(appModule)
         Injekt.importModule(DomainModule())
         Injekt.importModule(TtsModule(application = this))
+        // Flugel: capture fresh-install status before the legacy migration creates an inventory.
+        val flugelFreshInstall = !Injekt.get<ConnectionPreferences>().hasPersistedProfiles()
         Injekt.get<koharia.connection.SharedConfigMigration>().captureUpgradeSelection()
         Injekt.get<koharia.source.komga.KomgaConnectionMigration>().migrate()
+        koharia.flugel.initializeFlugelConnections(flugelFreshInstall)
         setupNotificationChannels()
         if (Injekt.get<koharia.connection.SharedConfigMigration>().initialize()) {
             initializeSharedConfiguration()

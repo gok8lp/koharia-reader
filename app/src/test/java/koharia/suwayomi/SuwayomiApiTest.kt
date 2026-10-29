@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import koharia.connection.ConnectionAddressRouter
 import koharia.connection.ConnectionAddressVerification
+import koharia.connection.ConnectionServerProbe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -77,6 +78,10 @@ class SuwayomiApiTest {
     }
     private fun handle(exchange: HttpExchange, fixture: Fixture) {
         fixture.requests += "${exchange.requestMethod} ${exchange.requestURI.path}"
+        if (exchange.requestURI.path.endsWith("/manifest.json")) {
+            send(exchange, """{"name":"Komga","short_name":"Komga","display":"standalone"}""")
+            return
+        }
         if (exchange.requestURI.path == "/proxy/login.html") {
             fixture.loginCount.incrementAndGet()
             if (fixture.denyLogin) {
@@ -241,7 +246,7 @@ class SuwayomiApiTest {
             publicUrl,
             public.mode,
             internalUrl,
-            ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, "probe"),
+            ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, ConnectionServerProbe.KOMGA),
         )
         internal.deny = true
         var observed: SuwayomiException.Reason? = null
@@ -267,7 +272,7 @@ class SuwayomiApiTest {
                 publicUrl,
                 mode,
                 internalUrl,
-                ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, "probe"),
+                ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, ConnectionServerProbe.KOMGA),
             )
             var observed: SuwayomiException.Reason? = null
             try {
@@ -289,12 +294,13 @@ class SuwayomiApiTest {
         val internal = Fixture(SuwayomiAuthMode.NONE)
         val publicUrl = server(public)
         val internalUrl = server(internal)
-        val router = ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, "probe")
+        val router = ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, ConnectionServerProbe.KOMGA)
         val api = api(publicUrl, public.mode, internalUrl, router)
         internal.graphqlStatus = 503
         assertEquals(1, api.categories().size)
         assertEquals(1, public.requests.size)
-        val freshRouter = ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, "probe")
+        val freshRouter =
+            ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, ConnectionServerProbe.KOMGA)
         val freshApi = api(publicUrl, public.mode, internalUrl, freshRouter)
         try {
             freshApi.updateChapter(11, 2, false)
@@ -309,7 +315,7 @@ class SuwayomiApiTest {
         val publicUrl = server(public)
         val internalUrl = server(internal)
         // Wi-Fi prefers the LAN address, so the HTTP session belongs to the internal endpoint.
-        val router = ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, "probe")
+        val router = ConnectionAddressRouter({ publicUrl }, { internalUrl }, { "wifi" }, ConnectionServerProbe.KOMGA)
         val api = api(publicUrl, public.mode, internalUrl, router)
 
         assertEquals(1, api.categories().size)
@@ -320,6 +326,23 @@ class SuwayomiApiTest {
         assertTrue(!authorization.isNullOrBlank())
         // OkHttp reports websocket URLs in their http form, so this pins the routed address.
         assertEquals(internalUrl + "api/graphql", api.authenticatedWebSocketRequest().url.toString())
+    }
+
+    @Test
+    fun `protected anonymous LAN probe prevents manual credential exposure`() = runTest {
+        val public = Fixture(SuwayomiAuthMode.BASIC_AUTH)
+        val internal = Fixture(SuwayomiAuthMode.BASIC_AUTH)
+        val api = api(server(public), public.mode, server(internal))
+        val failure = runCatching { api.verifyInternal() }.exceptionOrNull()
+        assertEquals(
+            ConnectionAddressVerification.Reason.UNAVAILABLE,
+            (failure as ConnectionAddressVerification.Failure).reason,
+        )
+        assertTrue(public.requests.isEmpty())
+        assertEquals(listOf("GET /proxy/api/graphql"), internal.requests)
+        assertEquals(0, internal.loginCount.get())
+        assertTrue(public.meta.isEmpty())
+        assertTrue(internal.meta.isEmpty())
     }
 
     @Test

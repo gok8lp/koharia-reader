@@ -127,6 +127,13 @@ class SmangaApi(
     suspend fun validate(internalAddress: String = ""): SmangaAccount = withContext(Dispatchers.IO) {
         // Address verification must contact both endpoints directly, without a routing fallback.
         check(internalAddress.isBlank() || addressRouter == null)
+        // Flugel: optional LAN validation must not expose the login token or OPDS password first.
+        if (internalAddress.isNotBlank() && normalizeBase(internalAddress) != base) {
+            ConnectionAddressVerification.requireAnonymousServer(
+                koharia.connection.ConnectionServerProbe.SMANGA,
+                normalizeBase(internalAddress).toString(),
+            )
+        }
         val account = account()
         validateOpds()
         if (internalAddress.isNotBlank() && normalizeBase(internalAddress) != base) {

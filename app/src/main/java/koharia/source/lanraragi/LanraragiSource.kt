@@ -38,6 +38,7 @@ import koharia.connection.ConnectionPreferences
 import koharia.connection.ConnectionReadStatusAdapter
 import koharia.connection.ConnectionReaderRoutingAdapter
 import koharia.connection.ConnectionRestoreState
+import koharia.connection.ConnectionServerProbe
 import koharia.connection.ConnectionSource
 import koharia.connection.LibraryConnectionProfile
 import koharia.connection.LibraryContentScope
@@ -217,7 +218,8 @@ class LanraragiSource(
                 Injekt.get<android.app.Application>(),
                 { address },
                 { internalAddress },
-                "api/info",
+                // Flugel: anonymous product proof is required before optional LAN credentials.
+                ConnectionServerProbe.LANRARAGI,
             ),
         ).also {
             apiAddress = address

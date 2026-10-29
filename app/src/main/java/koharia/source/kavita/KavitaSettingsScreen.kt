@@ -173,7 +173,14 @@ class KavitaSettingsScreen(
                                 val normalizedInternal = internalAddress.takeIf { it.isNotBlank() }?.let {
                                     requireNotNull(koharia.connection.ConnectionAddressRouter.normalize(it)).toString()
                                 }.orEmpty()
-                                if (normalizedInternal.isNotEmpty()) {
+                                // Flugel: the public account is validated above. An unavailable optional LAN
+                                // must not block mobile setup; runtime routing still requires anonymous proof.
+                                if (normalizedInternal.isNotEmpty() &&
+                                    koharia.connection.ConnectionAddressVerification.hasAnonymousServer(
+                                        koharia.connection.ConnectionServerProbe.KAVITA,
+                                        normalizedInternal,
+                                    )
+                                ) {
                                     val internalAccount = withContext(Dispatchers.IO) {
                                         KavitaApiClient(
                                             Injekt.get<NetworkHelper>().client,

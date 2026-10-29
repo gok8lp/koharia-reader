@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Flugel: personal first-run setup and update notice. -->
+    <string name="flugel_setup_title">Welcome to Flugel Manga</string>
+    <string name="flugel_setup_description">Your Komga and Kavita addresses are ready. Sign in to Komga and enter your Kavita API key once. Credentials are stored only on this device. You can change them later under Server management.</string>
+    <string name="flugel_setup_sign_in">Enter credentials</string>
+    <string name="flugel_setup_configured">Credentials saved</string>
+    <string name="flugel_setup_later">Set up later</string>
+    <string name="flugel_update_available">A new Flugel Manga build is available. The download is verified before installation.</string>
     <string name="storage_add_mode">Choose library storage</string>
     <string name="storage_mode_local">Local directory</string>
     <string name="storage_primary_address">Primary address</string>

@@ -34,7 +34,9 @@ class KavitaProtocolTest {
                 exchange.requestBody.use { it.readBytes() }
                 val auth = exchange.requestURI.path.endsWith("authenticate") ||
                     exchange.requestURI.path.endsWith("refresh-account")
-                val body = if (auth && version == "0.8.0") {
+                val body = if (exchange.requestURI.path.endsWith("/site.webmanifest")) {
+                    """{"name":"Kavita","short_name":"Kavita","display":"standalone"}"""
+                } else if (auth && version == "0.8.0") {
                     val token = """{"nameid":"7","role":["Login","Download"]}""".encodeUtf8().base64Url()
                     """{"username":"fixture","token":"header.$token.signature","kavitaVersion":"$version"}"""
                 } else if (auth) {
@@ -74,8 +76,7 @@ class KavitaProtocolTest {
             { public },
             { internal },
             { network },
-            "api/health",
-            authenticateProbe = false,
+            koharia.connection.ConnectionServerProbe.KAVITA,
         )
         val api = KavitaApiClient(okhttp3.OkHttpClient(), public, "fixture-key", "stable", router = router)
             .also { clients += it }

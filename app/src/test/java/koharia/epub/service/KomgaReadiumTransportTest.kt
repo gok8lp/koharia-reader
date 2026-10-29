@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer
 import io.mockk.every
 import io.mockk.mockk
 import koharia.connection.ConnectionAddressRouter
+import koharia.connection.ConnectionServerProbe
 import kotlinx.coroutines.test.runTest
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -25,7 +26,11 @@ class KomgaReadiumTransportTest {
             receivedRange = exchange.requestHeaders.getFirst("Range")
             receivedAuth = exchange.requestHeaders.getFirst("Authorization")
             exchange.responseHeaders.add("Content-Type", "application/xhtml+xml")
-            val bytes = "<html>reader</html>".toByteArray()
+            val bytes = if (exchange.requestURI.path.endsWith("/manifest.json")) {
+                """{"name":"Komga","short_name":"Komga","display":"standalone"}""".toByteArray()
+            } else {
+                "<html>reader</html>".toByteArray()
+            }
             exchange.sendResponseHeaders(status, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
@@ -34,7 +39,7 @@ class KomgaReadiumTransportTest {
     private val base = "http://127.0.0.1:1/public/"
     private val internal = "http://127.0.0.1:${server.address.port}/internal/"
     private val client = OkHttpClient.Builder()
-        .addInterceptor(ConnectionAddressRouter({ base }, { internal }, { "wifi" }, "probe"))
+        .addInterceptor(ConnectionAddressRouter({ base }, { internal }, { "wifi" }, ConnectionServerProbe.KOMGA))
         .addNetworkInterceptor(ConnectionAddressRouter.redirectGuard).build()
     private val transport = KomgaReadiumTransport {
         KomgaReadiumTransport.Connection(base, client, Headers.headersOf("Authorization", "Basic fixture"))

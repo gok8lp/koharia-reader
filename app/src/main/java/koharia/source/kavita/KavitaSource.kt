@@ -37,6 +37,7 @@ import koharia.connection.ConnectionRawDownloadAdapter
 import koharia.connection.ConnectionRawDownloadResumePolicy
 import koharia.connection.ConnectionReadStatusAdapter
 import koharia.connection.ConnectionReaderRoutingAdapter
+import koharia.connection.ConnectionServerProbe
 import koharia.connection.ConnectionSource
 import koharia.connection.LibraryConnectionProfile
 import koharia.connection.LibraryContentScope
@@ -164,8 +165,8 @@ class KavitaSource(private val context: Context, override val connectionProfile:
                         preferences.address
                     },
                     { preferences.internalAddress },
-                    "api/health",
-                    authenticateProbe = false,
+                    // Flugel: anonymous product proof is required before optional LAN credentials.
+                    ConnectionServerProbe.KAVITA,
                 ),
                 expectedIdentity = preferences.identity,
             )

@@ -3,6 +3,7 @@ param(
     [string]$Serial
 )
 
+# Flugel: use the standard flavor so isolated device fixtures keep their existing package IDs.
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $targetPackage = "app.koharia.dev.einkfixture"
@@ -37,24 +38,24 @@ try {
     ) | Set-Content $report
 
     Invoke-Checked {
-        .\gradlew.bat -PeinkDeviceFixture=true :app:assembleDebug :app:assembleDebugAndroidTest
+        .\gradlew.bat -PeinkDeviceFixture=true :app:assembleStandardDebug :app:assembleStandardDebugAndroidTest
     } "Isolated test APK build"
 
-    $appMetadata = Get-Content "app\build\outputs\apk\debug\output-metadata.json" | ConvertFrom-Json
+    $appMetadata = Get-Content "app\build\outputs\apk\standard\debug\output-metadata.json" | ConvertFrom-Json
     if ($appMetadata.applicationId -ne $targetPackage) {
         throw "Refusing to install an APK outside the isolated fixture package: $($appMetadata.applicationId)."
     }
     $appElement = $appMetadata.elements | Where-Object { $_.filters.Count -eq 0 } | Select-Object -First 1
     if ($null -eq $appElement) { throw "Universal debug APK was not found." }
-    $appApk = Join-Path "app\build\outputs\apk\debug" $appElement.outputFile
+    $appApk = Join-Path "app\build\outputs\apk\standard\debug" $appElement.outputFile
 
-    $testMetadata = Get-Content "app\build\outputs\apk\androidTest\debug\output-metadata.json" | ConvertFrom-Json
+    $testMetadata = Get-Content "app\build\outputs\apk\androidTest\standard\debug\output-metadata.json" | ConvertFrom-Json
     if ($testMetadata.applicationId -ne $testPackage) {
         throw "Refusing to install an APK outside the isolated test package: $($testMetadata.applicationId)."
     }
     $testElement = $testMetadata.elements | Select-Object -First 1
     if ($null -eq $testElement) { throw "Android test APK was not found." }
-    $testApk = Join-Path "app\build\outputs\apk\androidTest\debug" $testElement.outputFile
+    $testApk = Join-Path "app\build\outputs\apk\androidTest\standard\debug" $testElement.outputFile
 
     Invoke-Checked { adb -s $Serial install -r -t $appApk } "Isolated debug APK update (existing data is retained)"
     Invoke-Checked { adb -s $Serial install -r -t $testApk } "Isolated test APK update (existing data is retained)"

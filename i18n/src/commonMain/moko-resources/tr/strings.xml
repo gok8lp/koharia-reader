@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Flugel: kişisel ilk açılış kurulumu ve güncelleme bildirimi. -->
+    <string name="flugel_setup_title">Flugel Manga’ya hoş geldiniz</string>
+    <string name="flugel_setup_description">Komga ve Kavita adresleriniz hazır. Komga hesabınızla oturum açın ve Kavita API anahtarınızı bir kez girin. Kimlik bilgileri yalnızca bu cihazda saklanır. Bunları daha sonra Sunucu yönetimi bölümünden değiştirebilirsiniz.</string>
+    <string name="flugel_setup_sign_in">Kimlik bilgilerini girin</string>
+    <string name="flugel_setup_configured">Kimlik bilgileri kaydedildi</string>
+    <string name="flugel_setup_later">Daha sonra ayarla</string>
+    <string name="flugel_update_available">Yeni bir Flugel Manga sürümü hazır. İndirme, kurulumdan önce doğrulanır.</string>
     <string name="name">Ad</string>
     <string name="categories">Kategoriler</string>
     <string name="manga">Kitaplık girdileri</string>

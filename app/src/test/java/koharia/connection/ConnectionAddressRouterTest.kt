@@ -17,12 +17,16 @@ class ConnectionAddressRouterTest {
     private val internalRequests = CopyOnWriteArrayList<String>()
     private var internalStatus = 200
     private var probeStatus = 200
+    private var probeBody = """{"name":"Komga","short_name":"Komga","display":"standalone"}"""
+    private var probeDelay = 0L
+    private val internalSecrets = CopyOnWriteArrayList<List<String?>>()
     private var wifi: Any? = "home"
     private val publicServer = server(publicRequests) { 200 }
-    private val internalServer = server(internalRequests) { if (it.endsWith("/probe")) probeStatus else internalStatus }
+    private val internalServer =
+        server(internalRequests) { if (it.endsWith("/manifest.json")) probeStatus else internalStatus }
     private val public = "http://127.0.0.1:${publicServer.address.port}/public/"
     private var internal = "http://127.0.0.1:${internalServer.address.port}/lan/"
-    private val router = ConnectionAddressRouter({ public }, { internal }, { wifi }, "probe")
+    private val router = ConnectionAddressRouter({ public }, { internal }, { wifi }, ConnectionServerProbe.KOMGA)
     private val client = OkHttpClient.Builder().addInterceptor(router)
         .addNetworkInterceptor(ConnectionAddressRouter.redirectGuard).build()
 
@@ -41,7 +45,7 @@ class ConnectionAddressRouterTest {
             assertEquals(request.url, it.request.url)
             assertEquals("bytes=3-9", it.header("Received-Range"))
         }
-        assertEquals(listOf("GET /lan/probe", "GET /lan/book/page?number=2"), internalRequests)
+        assertEquals(listOf("GET /lan/manifest.json", "GET /lan/book/page?number=2"), internalRequests)
         assertTrue(publicRequests.isEmpty())
     }
 
@@ -92,7 +96,7 @@ class ConnectionAddressRouterTest {
         client.newCall(Request.Builder().url(public + "progress").put("{}".toRequestBody()).build())
             .execute().use { assertEquals(503, it.code) }
         assertTrue(publicRequests.isEmpty())
-        assertEquals(listOf("GET /lan/probe", "PUT /lan/progress"), internalRequests)
+        assertEquals(listOf("GET /lan/manifest.json", "PUT /lan/progress"), internalRequests)
     }
 
     @Test
@@ -100,7 +104,7 @@ class ConnectionAddressRouterTest {
         probeStatus = 503
         client.newCall(Request.Builder().url(public + "progress").put("{}".toRequestBody()).build())
             .execute().close()
-        assertEquals(listOf("GET /lan/probe"), internalRequests)
+        assertEquals(listOf("GET /lan/manifest.json"), internalRequests)
         assertEquals(listOf("PUT /public/progress"), publicRequests)
     }
 
@@ -115,15 +119,73 @@ class ConnectionAddressRouterTest {
     }
 
     @Test
-    fun `authentication failure during initial probe still uses internal address`() {
+    fun `authentication failures cannot validate an unknown internal server`() {
         for (status in listOf(401, 403)) {
             probeStatus = status
             internalStatus = status
             wifi = status
             get()
         }
-        assertTrue(publicRequests.isEmpty())
-        assertEquals(4, internalRequests.size)
+        assertEquals(2, publicRequests.size)
+        assertEquals(2, internalRequests.size)
+    }
+
+    @Test
+    fun `anonymous probe cannot inherit provider interceptors cookies headers or secret URL parameters`() {
+        val credentialedClient = client.newBuilder().addInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("Authorization", "interceptor-secret").build())
+        }.build()
+        try {
+            credentialedClient.newCall(
+                Request.Builder().url(public + "book?apiKey=fixture-secret")
+                    .header("Authorization", "request-secret")
+                    .header("X-API-Key", "key-secret")
+                    .header("X-Komga-Api-Key", "legacy-key-secret")
+                    .header("Cookie", "session=secret")
+                    .header("token", "token-secret").build(),
+            ).execute().close()
+            assertEquals("GET /lan/manifest.json", internalRequests.first())
+            assertTrue(internalSecrets.first().all { it == null })
+            assertTrue(internalSecrets.last().any { it != null })
+            assertTrue(publicRequests.isEmpty())
+        } finally {
+            credentialedClient.connectionPool.evictAll()
+        }
+    }
+
+    @Test
+    fun `wrong product malformed JSON generic health and oversized response cannot validate LAN`() {
+        for (body in listOf(
+            "Ok",
+            "{}",
+            "{",
+            """{"name":"Kavita","short_name":"Kavita","display":"standalone"}""",
+            " ".repeat(65537),
+        )) {
+            wifi = body
+            probeBody = body
+            get()
+        }
+        assertEquals(5, publicRequests.size)
+        assertEquals(5, internalRequests.size)
+    }
+
+    @Test
+    fun `anonymous probe redirects are not followed`() {
+        probeStatus = 302
+        get()
+        assertEquals(listOf("GET /lan/manifest.json"), internalRequests)
+        assertEquals(listOf("GET /public/book"), publicRequests)
+    }
+
+    @Test
+    fun `slow anonymous probe falls back once without credentials`() {
+        probeDelay = 2000
+        get()
+        get()
+        assertEquals(2, publicRequests.size)
+        assertEquals(1, internalRequests.size)
+        assertTrue(internalSecrets.single().all { it == null })
     }
 
     @Test
@@ -132,7 +194,7 @@ class ConnectionAddressRouterTest {
             { "https://public.test/lrr/" },
             { "http://lan.test/lrr/internal/" },
             { "wifi" },
-            "probe",
+            ConnectionServerProbe.KOMGA,
         )
         assertEquals(
             "https://public.test/lrr/api/image/1",
@@ -142,7 +204,7 @@ class ConnectionAddressRouterTest {
             { "https://public.test/lrr/public/" },
             { "http://lan.test/lrr/" },
             { "wifi" },
-            "probe",
+            ConnectionServerProbe.KOMGA,
         )
         assertEquals("/lrr/public/api/image/1", nestedPublic.canonicalResourcePath("/lrr/public/api/image/1"))
         assertEquals(
@@ -173,9 +235,20 @@ class ConnectionAddressRouterTest {
                 requests += "${exchange.requestMethod} ${exchange.requestURI}"
                 exchange.requestHeaders.getFirst("Range")?.let { exchange.responseHeaders.add("Received-Range", it) }
                 exchange.requestBody.close()
-                val bytes = "{}".toByteArray()
-                exchange.sendResponseHeaders(status(exchange.requestURI.path), bytes.size.toLong())
-                exchange.responseBody.use { it.write(bytes) }
+                val isProbe = exchange.requestURI.path.endsWith("/manifest.json")
+                if (requests === internalRequests) {
+                    internalSecrets += listOf("Authorization", "X-API-Key", "X-Komga-Api-Key", "Cookie", "token")
+                        .map { exchange.requestHeaders.getFirst(it) }
+                }
+                if (isProbe && probeDelay > 0) Thread.sleep(probeDelay)
+                val bytes = (if (isProbe) probeBody else "{}").toByteArray()
+                val code = status(exchange.requestURI.path)
+                if (code == 302) exchange.responseHeaders.set("Location", public + "redirect-target")
+                runCatching {
+                    exchange.sendResponseHeaders(code, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+                exchange.close()
             }
             start()
         }

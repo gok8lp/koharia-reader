@@ -1,4 +1,5 @@
 """Run opt-in protocol tests against a fresh, loopback-only official Kavita 0.8 Windows runtime.
+# Flugel: use the standard flavor so isolated device fixtures keep their existing package IDs.
 
 Extract the official distribution into .test-artifacts/kavita/server-0.8.0 first.
 Only generated fixture content is used. Credentials remain in memory; the process is always stopped.
@@ -157,11 +158,11 @@ def main():
         print('Isolated official ' + version + ' server scanned comic, Chinese EPUB and PDF fixtures.', flush=True)
         with (artifacts / 'gradle.log').open('w', encoding='utf-8') as log:
             result = subprocess.run([str(repo / 'gradlew.bat'), '--no-daemon', '--no-configuration-cache',
-                                     '--console=plain', ':app:testDebugUnitTest', '--rerun', '--tests',
+                                     '--console=plain', ':app:testStandardDebugUnitTest', '--rerun', '--tests',
                                      'koharia.kavita.KavitaLegacyLiveTest'], cwd=repo, env=env,
                                     stdout=log, stderr=subprocess.STDOUT).returncode
         report['gradleExitCode'] = result
-        junit = repo / 'app/build/test-results/testDebugUnitTest/TEST-koharia.kavita.KavitaLegacyLiveTest.xml'
+        junit = repo / 'app/build/test-results/testStandardDebugUnitTest/TEST-koharia.kavita.KavitaLegacyLiveTest.xml'
         if junit.exists():
             shutil.copyfile(junit, artifacts / 'junit.xml')
         report['stage'] = 'complete' if result == 0 else 'tests-failed'

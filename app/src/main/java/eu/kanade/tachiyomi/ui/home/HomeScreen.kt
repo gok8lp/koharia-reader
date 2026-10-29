@@ -80,6 +80,8 @@ object HomeScreen : Screen() {
     @Composable
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
+        // Flugel: collect credentials through existing provider settings on the first launch.
+        koharia.flugel.FlugelFirstRunSetup()
         val contentScopeController = remember { Injekt.get<ConnectionContentScopeController>() }
         val contentScopes by remember(contentScopeController) {
             contentScopeController.activeScopesChanges()

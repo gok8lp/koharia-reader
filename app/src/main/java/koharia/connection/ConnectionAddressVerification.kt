@@ -57,10 +57,28 @@ class ConnectionAddressVerification(networkClient: OkHttpClient) {
         .callTimeout(8, TimeUnit.SECONDS)
         .build()
 
+    // Flugel: the settings screen can save a validated public connection while optional LAN is offline.
+    suspend fun verifyPublicKomga(publicAddress: String, headers: Headers) {
+        val public = ConnectionAddressRouter.normalize(publicAddress) ?: throw Failure(Reason.UNAVAILABLE)
+        try {
+            if (send(public, "api/v1/libraries?size=1", headers) !is JsonArray) throw Failure(Reason.UNAVAILABLE)
+        } catch (error: Exception) {
+            if (error is CancellationException || error is Failure) throw error
+            throw Failure(Reason.UNAVAILABLE)
+        }
+    }
+
     suspend fun verify(provider: Provider, publicAddress: String, internalAddress: String, headers: Headers) {
         if (internalAddress.isBlank()) return
         val public = ConnectionAddressRouter.normalize(publicAddress) ?: throw Failure(Reason.UNAVAILABLE)
         val internal = ConnectionAddressRouter.normalize(internalAddress) ?: throw Failure(Reason.UNAVAILABLE)
+        // Flugel: never send credentials to an optional address before anonymous product validation.
+        if (public != internal) {
+            requireAnonymousServer(
+                if (provider == Provider.KOMGA) ConnectionServerProbe.KOMGA else ConnectionServerProbe.LANRARAGI,
+                internalAddress,
+            )
+        }
         if (provider == Provider.LANRARAGI) {
             try {
                 check(!headers["Authorization"].isNullOrBlank())
@@ -159,6 +177,7 @@ class ConnectionAddressVerification(networkClient: OkHttpClient) {
             .method(method, body)
             .build()
         client.newCall(request).await().use { response ->
+            if (response.code == 401 || response.code == 403) throw Failure(Reason.AUTHENTICATION)
             if (!response.isSuccessful) throw Failure(Reason.UNAVAILABLE)
             val text = response.body.string()
             val value = if (text.isBlank()) JsonObject(emptyMap()) else Json.parseToJsonElement(text)
@@ -167,6 +186,23 @@ class ConnectionAddressVerification(networkClient: OkHttpClient) {
             }
             value
         }
+    }
+
+    companion object {
+        // Flugel: shared by manual profile validation and automatic routing.
+        suspend fun requireAnonymousServer(probe: ConnectionServerProbe, address: String) {
+            if (!hasAnonymousServer(probe, address)) throw Failure(Reason.UNAVAILABLE)
+        }
+
+        suspend fun hasAnonymousServer(probe: ConnectionServerProbe, address: String): Boolean =
+            withContext(Dispatchers.IO) {
+                val base = ConnectionAddressRouter.normalize(address) ?: return@withContext false
+                try {
+                    probe.isAvailable(base)
+                } catch (_: IOException) {
+                    false
+                }
+            }
     }
 
     private fun JsonElement.body(): RequestBody = toString().toRequestBody("application/json".toMediaType())

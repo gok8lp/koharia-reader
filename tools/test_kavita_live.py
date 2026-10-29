@@ -1,4 +1,5 @@
 """Opt-in writable Kavita integration tests. Credentials stay in process memory."""
+# Flugel: use the standard flavor so isolated device fixtures keep their existing package IDs.
 
 import argparse
 import getpass
@@ -103,23 +104,23 @@ def main():
 
         report["stage"] = "jvm-tests"
         result = 0 if args.device_only else run(gradle + [
-            ":app:testDebugUnitTest", "--rerun", "--tests", args.test,
+            ":app:testStandardDebugUnitTest", "--rerun", "--tests", args.test,
         ], "gradle.log")
         report["gradleExitCode"] = result
-        junit = repo / "app/build/test-results/testDebugUnitTest/TEST-koharia.kavita.KavitaLiveTest.xml"
+        junit = repo / "app/build/test-results/testStandardDebugUnitTest/TEST-koharia.kavita.KavitaLiveTest.xml"
         if not args.device_only and junit.exists():
             shutil.copyfile(junit, artifacts / "live-junit.xml")
         print("Live test Gradle exit code:", result, flush=True)
         if args.device and result == 0:
             report["stage"] = "device-build"
-            result = run(gradle + ["-PdeviceTestFixture=true", ":app:assembleDebug", ":app:assembleDebugAndroidTest"],
+            result = run(gradle + ["-PdeviceTestFixture=true", ":app:assembleStandardDebug", ":app:assembleStandardDebugAndroidTest"],
                          "device-build.log")
             if result != 0:
                 raise RuntimeError("Device fixture build failed")
             adb = ["adb", "-s", args.device]
             report["stage"] = "device-install"
-            for kind, directory in [("app", repo / "app/build/outputs/apk/debug"),
-                                    ("test", repo / "app/build/outputs/apk/androidTest/debug")]:
+            for kind, directory in [("app", repo / "app/build/outputs/apk/standard/debug"),
+                                    ("test", repo / "app/build/outputs/apk/androidTest/standard/debug")]:
                 metadata = json.loads((directory / "output-metadata.json").read_text(encoding="utf-8"))
                 expected = "app.koharia.dev.devicefixture" + (".test" if kind == "test" else "")
                 if metadata["applicationId"] != expected:

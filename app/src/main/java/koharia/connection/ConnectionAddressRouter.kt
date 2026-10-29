@@ -16,9 +16,8 @@ class ConnectionAddressRouter(
     private val publicAddress: () -> String,
     private val internalAddress: () -> String,
     private val wifiNetwork: () -> Any?,
-    private val probePath: String,
+    private val probe: ConnectionServerProbe,
     private val clock: () -> Long = System::nanoTime,
-    private val authenticateProbe: Boolean = true,
 ) : Interceptor {
     /** Opt in only for replayable queries transported with POST, never for mutations. */
     object ReadOnlyRequest
@@ -61,7 +60,7 @@ class ConnectionAddressRouter(
         val route = Route(network, public, internal)
         val useInternal = synchronized(this) {
             if (route != lastRoute || clock() - checkedAt > TimeUnit.SECONDS.toNanos(30)) {
-                internalAvailable = probe(chain, original, internal)
+                internalAvailable = probe(chain, internal)
                 lastRoute = route
                 checkedAt = clock()
             }
@@ -90,31 +89,13 @@ class ConnectionAddressRouter(
 
     private fun Request.isReplayable() = method in READ_METHODS || tag(ReadOnlyRequest::class.java) != null
 
-    private fun probe(chain: Interceptor.Chain, original: Request, internal: HttpUrl): Boolean {
-        val request = original.newBuilder()
-            .url(checkNotNull(internal.resolve(probePath)))
-            .get()
-            .removeHeader("Range")
-            .removeHeader("If-Range")
-            .removeHeader("If-None-Match")
-            .removeHeader("If-Modified-Since")
-            .removeHeader("Content-Type")
-            .header("Cache-Control", "no-store")
-            .header("Accept", "application/json")
-            .apply {
-                if (!authenticateProbe) {
-                    removeHeader("Authorization")
-                    removeHeader("Proxy-Authorization")
-                    removeHeader("token")
-                    removeHeader("Cookie")
-                }
-            }
-            .tag(InternalRoute::class.java, InternalRoute(internal))
-            .build()
+    // Flugel: a separate anonymous client cannot inherit credentials, cookies or auth interceptors.
+    private fun probe(chain: Interceptor.Chain, internal: HttpUrl): Boolean {
+        if (chain.call().isCanceled()) throw IOException("Canceled")
         return try {
-            chain.withConnectTimeout(1500, TimeUnit.MILLISECONDS)
-                .withReadTimeout(1500, TimeUnit.MILLISECONDS)
-                .proceed(request).use { it.isSuccessful || it.code == 401 || it.code == 403 }
+            val verified = probe.isAvailable(internal)
+            if (chain.call().isCanceled()) throw IOException("Canceled")
+            verified
         } catch (error: IOException) {
             if (chain.call().isCanceled() || error.hasNonRoutingFailure()) throw error
             false
@@ -150,16 +131,30 @@ class ConnectionAddressRouter(
             context: Context,
             publicAddress: () -> String,
             internalAddress: () -> String,
-            probePath: String,
-            authenticateProbe: Boolean = true,
+            probe: ConnectionServerProbe,
         ): ConnectionAddressRouter {
             val connectivity = context.applicationContext.getSystemService(ConnectivityManager::class.java)
             return ConnectionAddressRouter(publicAddress, internalAddress, {
-                connectivity.activeNetwork?.takeIf { network ->
-                    connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ==
-                        true
+                // Flugel: VPN capabilities inherit physical transports; confirm the Wi-Fi interface with LinkProperties.
+                fun snapshot(network: android.net.Network): ConnectionNetworkRoute.Network? {
+                    val capabilities = connectivity.getNetworkCapabilities(network) ?: return null
+                    val properties = connectivity.getLinkProperties(network)
+                    return ConnectionNetworkRoute.Network(
+                        id = network,
+                        wifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                        cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                        vpn = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                        internet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                        interfaceName = properties?.interfaceName,
+                    )
                 }
-            }, probePath, authenticateProbe = authenticateProbe)
+                val active = connectivity.activeNetwork
+                val activeSnapshot = active?.let(::snapshot)
+                ConnectionNetworkRoute.wifiNetwork(
+                    activeSnapshot,
+                    connectivity.allNetworks.mapNotNull(::snapshot),
+                )
+            }, probe)
         }
 
         fun normalize(address: String): HttpUrl? = address.trim().toHttpUrlOrNull()

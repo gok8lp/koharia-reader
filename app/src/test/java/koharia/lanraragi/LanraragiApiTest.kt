@@ -2,6 +2,7 @@ package koharia.lanraragi
 
 import com.sun.net.httpserver.HttpServer
 import koharia.connection.ConnectionAddressRouter
+import koharia.connection.ConnectionServerProbe
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -82,12 +83,12 @@ class LanraragiApiTest {
     fun `wifi transport authenticates internal requests and canonicalizes image URLs`() = runTest {
         handler = { _, _ -> 200 to info("0.9.70") }
         val public = "http://127.0.0.1:1/public/"
-        val router = ConnectionAddressRouter({ public }, { root }, { "wifi" }, "api/info")
+        val router = ConnectionAddressRouter({ public }, { root }, { "wifi" }, ConnectionServerProbe.LANRARAGI)
         val routedApi = LanraragiApi(public, "fixture-key", OkHttpClient(), Json, addressRouter = router)
         try {
             assertEquals("0.9.70", routedApi.serverInfo().version)
             assertEquals(2, requests.size)
-            assertTrue(authorizations.all { it == "Bearer Zml4dHVyZS1rZXk=" })
+            assertEquals(listOf("", "Bearer Zml4dHVyZS1rZXk="), authorizations)
             assertEquals(public + "api/image/1", routedApi.imageUrl(root + "api/image/1"))
             assertEquals(public + "api/image/1", routedApi.imageUrl("/lrr/api/image/1"))
             assertEquals(public + "api/image/1", routedApi.imageUrl("/api/image/1"))

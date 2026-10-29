@@ -33,6 +33,7 @@ import koharia.connection.ConnectionPageProgressAdapter
 import koharia.connection.ConnectionReadStatusAdapter
 import koharia.connection.ConnectionReaderRoutingAdapter
 import koharia.connection.ConnectionRestoreState
+import koharia.connection.ConnectionServerProbe
 import koharia.connection.ConnectionSource
 import koharia.connection.LibraryConnectionProfile
 import koharia.connection.LibraryContentScope
@@ -146,9 +147,10 @@ class SuwayomiSource(private val context: Context, override val connectionProfil
             preferences.username,
             preferences.password,
             internalAddress,
+            // Flugel: an authenticated-only probe cannot authorize optional LAN transport.
             ConnectionAddressRouter.forAndroid(context, {
                 address
-            }, { internalAddress }, SuwayomiApi.PROBE_PATH, authenticateProbe = false),
+            }, { internalAddress }, ConnectionServerProbe.SUWAYOMI),
             imageScope = "${identity.connectionId}/${identity.account}",
         )
         val catalog = SuwayomiCatalog(identity, repository, api, json, ::checkActive)

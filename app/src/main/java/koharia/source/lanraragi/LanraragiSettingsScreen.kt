@@ -45,6 +45,7 @@ import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.network.NetworkHelper
 import koharia.connection.ConnectionAddressRouter
 import koharia.connection.ConnectionProfileManager
+import koharia.connection.ConnectionServerProbe
 import koharia.connection.ui.ConnectionAddressSetting
 import koharia.domain.lanraragi.LanraragiEntry
 import koharia.domain.lanraragi.LanraragiRepository
@@ -167,7 +168,8 @@ class LanraragiSettingsScreen(
                                         context,
                                         { normalized },
                                         { internalAddress },
-                                        "api/info",
+                                        // Flugel: anonymous product proof is required before optional LAN credentials.
+                                        ConnectionServerProbe.LANRARAGI,
                                     ),
                                 )
                                 try {
