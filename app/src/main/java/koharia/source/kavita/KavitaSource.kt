@@ -633,13 +633,17 @@ class KavitaSource(private val context: Context, override val connectionProfile:
         (chapter.url.endsWith(".pdf") && (chapter.memo["kavitaFileCount"]?.jsonPrimitive?.longOrNull ?: 1) <= 1)
     override fun requiresRawDownload(chapter: Chapter) = session().identity.chapter(chapter.url).format == 3
     override fun rawFileRequest(resourceUrl: String, rangeStart: Long?): Request {
-        if (!preferences.capabilities.downloads) throw KavitaException(KavitaException.Reason.PERMISSION)
         return session().let {
             val ref = it.identity.chapter(resourceUrl)
-            if (ref.format == 3) {
-                it.api.request("Koharia/epub", "chapterId" to ref.chapterId)
-            } else {
-                it.api.rawRequest(ref.chapterId)
+            when {
+                ref.format == 4 && !preferences.capabilities.downloads ->
+                    it.api.request("Reader/pdf", "chapterId" to ref.chapterId)
+                !preferences.capabilities.downloads ->
+                    throw KavitaException(KavitaException.Reason.PERMISSION)
+                ref.format == 3 ->
+                    it.api.request("Koharia/epub", "chapterId" to ref.chapterId)
+                else ->
+                    it.api.rawRequest(ref.chapterId)
             }
         }
     }

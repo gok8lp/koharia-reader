@@ -17,19 +17,38 @@ import org.readium.r2.shared.util.http.HttpStatus
 import org.readium.r2.shared.util.http.HttpStreamResponse
 import org.readium.r2.shared.util.http.HttpTry
 import org.readium.r2.shared.util.mediatype.MediaType
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /** Reuses the connection transport while the outer Readium cache keeps canonical resource URLs. */
 internal class KomgaReadiumTransport(private val source: () -> Connection?) : HttpClient {
-    data class Connection(val baseUrl: String, val client: okhttp3.OkHttpClient, val headers: okhttp3.Headers)
+    data class Connection(
+        val baseUrl: String,
+        val client: okhttp3.OkHttpClient,
+        val headers: okhttp3.Headers,
+        val internalUrl: String = "",
+    )
     private val externalClient = DefaultHttpClient()
 
     override suspend fun stream(request: HttpRequest): HttpTry<HttpStreamResponse> {
         val connection = source() ?: return externalClient.stream(request)
         val base = ConnectionAddressRouter.normalize(connection.baseUrl) ?: return externalClient.stream(request)
-        val url = request.url.toString().toHttpUrlOrNull() ?: return externalClient.stream(request)
-        if (!ConnectionAddressRouter.owns(base, url)) return externalClient.stream(request)
+        val internal = ConnectionAddressRouter.normalize(connection.internalUrl)
+        val rawUrl = request.url.toString().toHttpUrlOrNull() ?: return externalClient.stream(request)
+        val url = when {
+            ConnectionAddressRouter.owns(base, rawUrl) -> rawUrl
+            internal != null && ConnectionAddressRouter.owns(internal, rawUrl) ->
+                ConnectionAddressRouter.remap(rawUrl, internal, base)
+            internal != null &&
+                ConnectionAddressRouter.owns(internal.newBuilder().scheme(rawUrl.scheme).build(), rawUrl) ->
+                ConnectionAddressRouter.remap(
+                    rawUrl,
+                    internal.newBuilder().scheme(rawUrl.scheme).build(),
+                    base,
+                )
+            else -> return externalClient.stream(request)
+        }
         return try {
             val body = when (val value = request.body) {
                 is HttpRequest.Body.Bytes -> value.bytes.toRequestBody()
@@ -50,6 +69,24 @@ internal class KomgaReadiumTransport(private val source: () -> Connection?) : Ht
                     Try.failure(HttpError.ErrorResponse(HttpStatus(it.code), mediaType, it.body.bytes()))
                 }
             } else {
+                val isManifest = mediaType?.toString()?.contains("webpub+json", ignoreCase = true) == true ||
+                    url.encodedPath.endsWith("/manifest/epub") ||
+                    url.encodedPath.endsWith("/manifest")
+                val stream = if (isManifest && internal != null && internal != base) {
+                    val canonicalPrefix = base.toString().trimEnd('/')
+                    val internalPrefix = internal.toString().trimEnd('/')
+                    val altInternalPrefix = internal.newBuilder()
+                        .scheme(if (internal.scheme == "http") "https" else "http")
+                        .build()
+                        .toString()
+                        .trimEnd('/')
+                    val text = response.use { it.body.string() }
+                        .replace(internalPrefix, canonicalPrefix)
+                        .replace(altInternalPrefix, canonicalPrefix)
+                    ByteArrayInputStream(text.toByteArray(Charsets.UTF_8))
+                } else {
+                    response.body.byteStream()
+                }
                 Try.success(
                     HttpStreamResponse(
                         response = HttpResponse(
@@ -59,7 +96,7 @@ internal class KomgaReadiumTransport(private val source: () -> Connection?) : Ht
                             headers = response.headers.toMultimap(),
                             mediaType = mediaType,
                         ),
-                        body = response.body.byteStream(),
+                        body = stream,
                     ),
                 )
             }

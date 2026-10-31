@@ -93,11 +93,15 @@ class KavitaLibraryScreen(
     @Composable
     override fun Content() {
         val source = Injekt.get<SourceManager>().get(sourceId) as? KavitaSource
-        if (source == null || !source.hasValidConnection()) {
+        if (source == null) {
             EmptyScreen(stringRes = MR.strings.connection_unavailable)
             return
         }
         val epoch by source.epoch.collectAsState()
+        if (!source.hasValidConnection()) {
+            EmptyScreen(stringRes = MR.strings.connection_unavailable)
+            return
+        }
         val model = rememberScreenModel(tag = "${source.instanceKey}:$epoch") {
             KavitaLibraryScreenModel(source, initialQuery, filterJson, contentScope)
         }

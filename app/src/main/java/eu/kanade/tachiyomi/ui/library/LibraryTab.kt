@@ -56,15 +56,34 @@ sealed class ConnectionLibraryTab(
         return effectiveConnectionId(prefs.activeConnectionId.get(), prefs.bookConnectionId.get())
     }
 
+    // Scope the cached screen was created with; split mode changes it without changing the source.
+    @Transient
+    @Volatile
+    private var runtimeBrowseScope: LibraryContentScope? = null
+
+    /** Ayri baglanti modunda her sekme kendi baglantisinin tum icerigini gosterir. */
+    private fun effectiveScope(
+        active: Long = Injekt.get<ConnectionPreferences>().activeConnectionId.get(),
+        book: Long = Injekt.get<ConnectionPreferences>().bookConnectionId.get(),
+    ): LibraryContentScope {
+        val split = Injekt.get<ConnectionPreferences>().splitBookConnectionId(active, book) != null
+        return if (split) LibraryContentScope.ALL else libraryScope
+    }
+
     private fun browseScreen(
         activeConnectionId: Long = currentConnectionId(),
+        scope: LibraryContentScope = effectiveScope(),
     ): ConnectionBrowseScreen? {
         if (activeConnectionId == NO_ACTIVE_CONNECTION) return null
-        runtimeBrowseScreen?.takeIf { it.sourceId == activeConnectionId }?.let { return it }
+        fun ConnectionBrowseScreen.matches() = sourceId == activeConnectionId && runtimeBrowseScope == scope
+        runtimeBrowseScreen?.takeIf { it.matches() }?.let { return it }
         return synchronized(this) {
             runtimeBrowseScreen
-                ?.takeIf { it.sourceId == activeConnectionId }
-                ?: newScreen(activeConnectionId)?.also { runtimeBrowseScreen = it }
+                ?.takeIf { it.matches() }
+                ?: newScreen(activeConnectionId, scope)?.also {
+                    runtimeBrowseScreen = it
+                    runtimeBrowseScope = scope
+                }
         }
     }
 
@@ -112,7 +131,8 @@ sealed class ConnectionLibraryTab(
         }
         // Keep the same screen instance while opening details or a reader. Its ScreenModel owns
         // the selected shelf, filters, search, and paging cache.
-        val activeScreen = remember(activeServerId) { browseScreen(activeServerId) }
+        val browseScope = effectiveScope(activeConnectionId, bookConnectionId)
+        val activeScreen = remember(activeServerId, browseScope) { browseScreen(activeServerId, browseScope) }
         if (activeScreen == null) {
             tachiyomi.presentation.core.screens.EmptyScreen(
                 stringRes = MR.strings.connection_unavailable,
@@ -140,25 +160,27 @@ sealed class ConnectionLibraryTab(
     suspend fun searchGenre(name: String) = browseScreen()?.searchGenre(name)
 
     private fun clearRuntimeState() {
-        val cachedSourceId = synchronized(this) {
-            runtimeBrowseScreen?.sourceId.also { runtimeBrowseScreen = null }
+        val (cachedSourceId, cachedScope) = synchronized(this) {
+            (runtimeBrowseScreen?.sourceId to runtimeBrowseScope).also {
+                runtimeBrowseScreen = null
+                runtimeBrowseScope = null
+            }
         }
         val activeSourceId = currentConnectionId()
+        val scopes = setOfNotNull(libraryScope, cachedScope, effectiveScope())
         setOfNotNull(
             cachedSourceId,
             activeSourceId.takeUnless { it == NO_ACTIVE_CONNECTION },
         ).forEach { sourceId ->
-            (Injekt.get<SourceManager>().get(sourceId) as? ConnectionBrowseAdapter)
-                ?.clearBrowseSession(libraryScope)
+            val adapter = Injekt.get<SourceManager>().get(sourceId) as? ConnectionBrowseAdapter
+            scopes.forEach { adapter?.clearBrowseSession(it) }
         }
     }
 
-    private fun newScreen(sourceId: Long): ConnectionBrowseScreen? {
+    private fun newScreen(sourceId: Long, scope: LibraryContentScope): ConnectionBrowseScreen? {
         val source = Injekt.get<SourceManager>().get(sourceId) ?: return null
-        // Ayri baglanti modunda her sekme kendi baglantisinin tum icerigini gosterir.
-        val split = Injekt.get<ConnectionPreferences>().splitBookConnectionId() != null
         return (source as? ConnectionBrowseAdapter)?.createBrowseScreen(
-            scope = if (split) LibraryContentScope.ALL else libraryScope,
+            scope = scope,
             listingQuery = null,
             showNavigationUp = false,
         )

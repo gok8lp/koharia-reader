@@ -52,6 +52,11 @@ fun requireKeystoreProperty(name: String): String {
         ?: error("Missing `$name` in ${keystorePropertiesFile.name}")
 }
 
+fun flugelStringProperty(name: String, default: String = ""): String {
+    val value = (providers.gradleProperty(name).orNull ?: keystoreProperties.getProperty(name) ?: default).trim()
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+
 // Flugel: optional personal services are public configuration, never credentials.
 fun flugelUrlProperty(name: String, default: String = ""): String {
     val value = providers.gradleProperty(name).getOrElse(default).trim()
@@ -101,6 +106,8 @@ android {
         buildConfigField("String", "FLUGEL_DOWNLOAD_URL", "\"\"")
         buildConfigField("String", "FLUGEL_UPLOAD_URL", "\"\"")
         buildConfigField("String", "FLUGEL_UPDATE_MANIFEST_URL", "\"\"")
+        buildConfigField("String", "FLUGEL_KOMGA_API_KEY", "\"\"")
+        buildConfigField("String", "FLUGEL_KAVITA_API_KEY", "\"\"")
 
         testInstrumentationRunner = "koharia.testing.KohariaDeviceTestRunner"
     }
@@ -121,6 +128,8 @@ android {
             buildConfigField("boolean", "UPDATER_ENABLED", "true")
             buildConfigField("String", "FLUGEL_DOWNLOAD_URL", flugelUrlProperty("flugelDownloadUrl"))
             buildConfigField("String", "FLUGEL_UPLOAD_URL", flugelUrlProperty("flugelUploadUrl"))
+            buildConfigField("String", "FLUGEL_KOMGA_API_KEY", flugelStringProperty("flugelKomgaApiKey"))
+            buildConfigField("String", "FLUGEL_KAVITA_API_KEY", flugelStringProperty("flugelKavitaApiKey"))
             buildConfigField(
                 "String",
                 "FLUGEL_UPDATE_MANIFEST_URL",

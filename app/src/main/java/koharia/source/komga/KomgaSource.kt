@@ -190,6 +190,9 @@ class KomgaSource(
     override val baseUrl: String
         get() = preferences.getString(PREF_ADDRESS, "")!!.trim().trimEnd('/')
 
+    val internalBaseUrl: String
+        get() = preferences.getString(ConnectionAddressRouter.INTERNAL_ADDRESS_KEY, "").orEmpty().trim().trimEnd('/')
+
     private val username: String
         get() = preferences.getString(PREF_USERNAME, "")!!
 
@@ -333,6 +336,7 @@ class KomgaSource(
             val newBuilder = original.newBuilder()
 
             if (authMode == AUTH_MODE_API_KEY && apiKey.isNotBlank()) {
+                newBuilder.header("X-API-Key", apiKey)
                 newBuilder.addHeader("X-Komga-Api-Key", apiKey)
             } else if (authMode == AUTH_MODE_CREDENTIALS && username.isNotBlank() && password.isNotBlank()) {
                 newBuilder.addHeader("Authorization", Credentials.basic(username, password))
@@ -752,13 +756,25 @@ class KomgaSource(
         chapter: tachiyomi.domain.chapter.model.Chapter,
     ): koharia.connection.LibraryContentScope {
         val classification = Injekt.get<KomgaLibraryClassificationManager>()
-        if (!classification.enabled.get()) return koharia.connection.LibraryContentScope.ALL
         val libraryId = KomgaChapterMemo.libraryId(chapter.memo) ?: getBookDetails(chapter.url)?.libraryId
-        return when (classification.getLibraries(id).firstOrNull { it.id == libraryId }?.kind) {
-            KomgaLibraryKind.COMIC -> koharia.connection.LibraryContentScope.COMIC
-            KomgaLibraryKind.BOOK -> koharia.connection.LibraryContentScope.BOOK
-            null -> koharia.connection.LibraryContentScope.ALL
+        val classified = classification.getLibraries(id).firstOrNull { it.id == libraryId }
+        if (classification.enabled.get()) {
+            return when (classified?.kind) {
+                KomgaLibraryKind.COMIC -> koharia.connection.LibraryContentScope.COMIC
+                KomgaLibraryKind.BOOK -> koharia.connection.LibraryContentScope.BOOK
+                null -> koharia.connection.LibraryContentScope.ALL
+            }
         }
+        val libraryName = classified?.name?.lowercase(Locale.ROOT).orEmpty()
+        if (classified?.kind == KomgaLibraryKind.BOOK ||
+            libraryId == "0QE7TV3FRE6R5" ||
+            libraryName.contains("novel") ||
+            libraryName.contains("book") ||
+            libraryName.contains("kitap")
+        ) {
+            return koharia.connection.LibraryContentScope.BOOK
+        }
+        return koharia.connection.LibraryContentScope.ALL
     }
 
     override suspend fun getCachedEpubProgress(

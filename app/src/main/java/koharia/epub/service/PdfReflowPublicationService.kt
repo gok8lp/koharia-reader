@@ -31,6 +31,7 @@ internal class PdfReflowPublicationService(
         initialPage: Int = chapter.lastPageRead.toInt(),
     ): PdfReflowArtifact {
         val localFile = (source as? ConnectionLocalFileAdapter)?.localChapterFile(chapter.url)
+            ?: (source as? koharia.connection.ConnectionPdfFileAdapter)?.findCompletePdfFile(chapter.url)
         val file = (
             localFile ?: downloadProvider.findChapterDir(
                 chapterName = chapter.name,

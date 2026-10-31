@@ -32,10 +32,14 @@ class ConnectionAddressRouter(
     fun canonicalUrl(url: HttpUrl): HttpUrl {
         val public = normalize(publicAddress()) ?: return url
         val internal = normalize(internalAddress()) ?: return url
-        return if (owns(internal, url)) remap(url, internal, public) else url
+        if (owns(internal, url)) return remap(url, internal, public)
+        val schemeAdjusted = internal.newBuilder().scheme(url.scheme).build()
+        return if (owns(schemeAdjusted, url)) remap(url, schemeAdjusted, public) else url
     }
 
-    fun ownsInternal(url: HttpUrl): Boolean = normalize(internalAddress())?.let { owns(it, url) } == true
+    fun ownsInternal(url: HttpUrl): Boolean = normalize(internalAddress())?.let { internal ->
+        owns(internal, url) || owns(internal.newBuilder().scheme(url.scheme).build(), url)
+    } == true
 
     fun canonicalResourcePath(path: String): String {
         val public = normalize(publicAddress()) ?: return path
