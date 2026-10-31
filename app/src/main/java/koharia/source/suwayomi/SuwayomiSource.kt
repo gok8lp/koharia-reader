@@ -523,7 +523,7 @@ class SuwayomiSource(private val context: Context, override val connectionProfil
                 url = session.identity.chapterUrl(entry.mangaId, entry.id)
                 name = entry.name
                 chapter_number = entry.chapterNumber
-                date_upload = entry.uploadDate * 1000
+                date_upload = entry.uploadDate // Suwayomi already reports uploadDate in milliseconds
                 scanlator = entry.scanlator
                 memo =
                     ConnectionChapterMetadata.withPagesCount(

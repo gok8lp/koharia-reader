@@ -6,12 +6,15 @@ import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.Downloading
 import androidx.compose.material.icons.outlined.GetApp
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material.icons.outlined.VolunteerActivism
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
@@ -39,6 +42,9 @@ fun MoreScreen(
     onDownloadedOnlyChange: (Boolean) -> Unit,
     onClickDownloadQueue: () -> Unit,
     onClickServerDownloads: (() -> Unit)? = null,
+    onClickSuwayomiBrowse: (() -> Unit)? = null,
+    onClickSuwayomiDownloads: (() -> Unit)? = null,
+    onClickSuwayomiLibrary: (() -> Unit)? = null,
     onClickStats: () -> Unit,
     onClickDataAndStorage: () -> Unit,
     onClickSettings: () -> Unit,
@@ -106,6 +112,37 @@ fun MoreScreen(
                         title = stringResource(MR.strings.server_download_queue),
                         icon = Icons.Outlined.Storage,
                         onPreferenceClick = onClickServerDownloads,
+                    )
+                }
+            }
+            // Flugel: etkin bağlantı Komga olsa bile Suwayomi araması, indirme kuyruğu ve kütüphanesi
+            if (onClickSuwayomiBrowse != null) {
+                item {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.flugel_suwayomi_ara),
+                        subtitle = stringResource(MR.strings.flugel_suwayomi_ara_aciklama),
+                        icon = Icons.Outlined.TravelExplore,
+                        onPreferenceClick = onClickSuwayomiBrowse,
+                    )
+                }
+            }
+            if (onClickSuwayomiDownloads != null) {
+                item {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.flugel_suwayomi_indirmeler),
+                        subtitle = stringResource(MR.strings.flugel_suwayomi_indirmeler_aciklama),
+                        icon = Icons.Outlined.Downloading,
+                        onPreferenceClick = onClickSuwayomiDownloads,
+                    )
+                }
+            }
+            if (onClickSuwayomiLibrary != null) {
+                item {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.flugel_suwayomi_kutuphane),
+                        subtitle = stringResource(MR.strings.flugel_suwayomi_kutuphane_aciklama),
+                        icon = Icons.Outlined.CollectionsBookmark,
+                        onPreferenceClick = onClickSuwayomiLibrary,
                     )
                 }
             }

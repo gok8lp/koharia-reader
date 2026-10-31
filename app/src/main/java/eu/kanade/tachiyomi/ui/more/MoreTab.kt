@@ -30,6 +30,11 @@ import koharia.connection.ConnectionPreferences
 import koharia.connection.ui.LibraryConnectionProfilesScreen
 import koharia.feature.support.SupportUsScreen
 import koharia.source.local.LocalFolderConnectionProvider
+import koharia.source.suwayomi.SuwayomiConnectionProvider
+import koharia.source.suwayomi.SuwayomiSource
+import koharia.suwayomi.ui.SuwayomiBrowseScreen
+import koharia.suwayomi.ui.SuwayomiDownloadsScreen
+import koharia.suwayomi.ui.SuwayomiLibraryScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,6 +78,10 @@ data object MoreTab : Tab {
         }.collectAsState(initial = connectionPreferences.getProfiles())
         val isLocalLibrary = activeConnectionId == ConnectionPreferences.LOCAL_CONNECTION_ID ||
             profiles.firstOrNull { it.id == activeConnectionId }?.providerId == LocalFolderConnectionProvider.ID
+        // Flugel: etkin olmayan ilk Suwayomi bağlantısı Daha Fazla menüsünden kullanılabilir.
+        val suwayomiId = profiles.firstOrNull {
+            it.providerId == SuwayomiConnectionProvider.ID && it.id != activeConnectionId
+        }?.id?.takeIf { Injekt.get<tachiyomi.domain.source.service.SourceManager>().get(it) is SuwayomiSource }
         MoreScreen(
             showOfflineControls = !isLocalLibrary,
             downloadQueueStateProvider = { downloadQueueState },
@@ -87,6 +96,11 @@ data object MoreTab : Tab {
                     .get(activeConnectionId) as? koharia.connection.ConnectionServerDownloadsAdapter
                 )?.let { adapter ->
                 { navigator.push(adapter.serverDownloadsScreen()) }
+            },
+            onClickSuwayomiBrowse = suwayomiId?.let { id -> { navigator.push(SuwayomiBrowseScreen(id, true)) } },
+            onClickSuwayomiDownloads = suwayomiId?.let { id -> { navigator.push(SuwayomiDownloadsScreen(id)) } },
+            onClickSuwayomiLibrary = suwayomiId?.let { id ->
+                { navigator.push(SuwayomiLibraryScreen(id, null, true)) }
             },
             onClickStats = { navigator.push(StatsScreen()) },
             onClickDataAndStorage = { navigator.push(SettingsScreen(SettingsScreen.Destination.DataAndStorage)) },

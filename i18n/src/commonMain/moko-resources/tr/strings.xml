@@ -927,4 +927,10 @@
     <string name="flugel_manga_indir_aciklama">Sunucuda manga ara ve takibe al (Tranga)</string>
     <string name="flugel_kutuphaneye_ekle">Kütüphaneye ekle</string>
     <string name="flugel_kutuphaneye_ekle_aciklama">Telefondaki EPUB/PDF/CBZ dosyasını sunucuya yükle</string>
+    <string name="flugel_suwayomi_ara">Suwayomi\'de ara</string>
+    <string name="flugel_suwayomi_ara_aciklama">Kaynaklarda manga ara, bölümleri sunucuya indir</string>
+    <string name="flugel_suwayomi_indirmeler">Suwayomi indirmeleri</string>
+    <string name="flugel_suwayomi_indirmeler_aciklama">Sunucudaki indirme kuyruğunu izle</string>
+    <string name="flugel_suwayomi_kutuphane">Suwayomi kütüphanesi</string>
+    <string name="flugel_suwayomi_kutuphane_aciklama">Sunucuda takip edilen ve indirilen seriler</string>
 </resources>

@@ -166,7 +166,8 @@ internal fun applyDownloadEvent(json: Json, queue: MutableMap<Int, SuwayomiDownl
     }
     changed["updates"]?.takeUnless { it == JsonNull }?.jsonArray.orEmpty().forEach { update ->
         val item = json.decodeFromJsonElement<SuwayomiDownloadItem>(update.jsonObject.getValue("download"))
-        if (update.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "DEQUEUED") {
+        // The server drops finished downloads from its queue, so FINISHED must leave the list too.
+        if (update.jsonObject["type"]?.jsonPrimitive?.contentOrNull in REMOVED_DOWNLOAD_UPDATES) {
             queue.remove(item.chapterId)
         } else {
             queue[item.chapterId] = item
@@ -179,3 +180,5 @@ internal fun applyDownloadEvent(json: Json, queue: MutableMap<Int, SuwayomiDownl
         },
     )
 }
+
+private val REMOVED_DOWNLOAD_UPDATES = setOf("DEQUEUED", "FINISHED")

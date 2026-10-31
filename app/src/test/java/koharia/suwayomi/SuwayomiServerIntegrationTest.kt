@@ -1,5 +1,6 @@
 package koharia.suwayomi
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -55,8 +56,9 @@ class SuwayomiServerIntegrationTest {
         }
     }
 
+    // Real network I/O: runTest's virtual clock would fire the cleanup withTimeout early.
     @Test
-    fun `isolated server verifies dual-address metadata identity and cleanup`() = runTest {
+    fun `isolated server verifies dual-address metadata identity and cleanup`() = runBlocking {
         val address = System.getenv("SUWAYOMI_TEST_URL")
         assumeTrue(address?.startsWith("http://127.0.0.1:14567") == true)
         api("http://localhost:14567").use { client ->

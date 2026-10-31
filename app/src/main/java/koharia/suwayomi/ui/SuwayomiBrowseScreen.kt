@@ -81,7 +81,10 @@ private enum class SuwayomiBrowseTab(val label: StringResource, val key: String)
  * catalogue, the extension catalogue and the migration entry point, each with its own search.
  * The screen keeps only the connection id so Voyager can persist it across process death.
  */
-class SuwayomiBrowseScreen(private val sourceId: Long) : Screen() {
+class SuwayomiBrowseScreen(
+    private val sourceId: Long,
+    private val showNavigationUp: Boolean = false,
+) : Screen() {
 
     @Composable
     override fun Content() {
@@ -113,6 +116,7 @@ class SuwayomiBrowseScreen(private val sourceId: Long) : Screen() {
                 Column {
                     AppBar(
                         title = stringResource(MR.strings.browse),
+                        navigateUp = if (showNavigationUp) ({ navigator.pop() }) else null,
                         actions = {
                             when (current) {
                                 SuwayomiBrowseTab.SOURCES -> IconButton(onClick = model::refresh) {

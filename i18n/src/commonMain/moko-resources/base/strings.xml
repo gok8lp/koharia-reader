@@ -2324,4 +2324,10 @@
     <string name="flugel_manga_indir_aciklama">Search and follow manga on the server (Tranga)</string>
     <string name="flugel_kutuphaneye_ekle">Add to library</string>
     <string name="flugel_kutuphaneye_ekle_aciklama">Upload EPUB/PDF/CBZ from this phone to the server</string>
+    <string name="flugel_suwayomi_ara">Search on Suwayomi</string>
+    <string name="flugel_suwayomi_ara_aciklama">Search sources and download chapters to the server</string>
+    <string name="flugel_suwayomi_indirmeler">Suwayomi downloads</string>
+    <string name="flugel_suwayomi_indirmeler_aciklama">Follow the server download queue</string>
+    <string name="flugel_suwayomi_kutuphane">Suwayomi library</string>
+    <string name="flugel_suwayomi_kutuphane_aciklama">Followed and downloaded series on the server</string>
 </resources>
