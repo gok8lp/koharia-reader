@@ -63,8 +63,13 @@ fun initializeFlugelConnections(freshInstall: Boolean) {
 
     if (komgaProfile != null) {
         val store = sourcePreferences("source_${komgaProfile.id}")
-        if (store.getString("Address", "").isNullOrBlank()) {
-            writeProfileAddresses(komgaProfile, "https://manga.gokalpgoksu.com", "http://192.168.0.15:8296")
+        val currentAddr = store.getString("Address", "")?.trim().orEmpty()
+        if (currentAddr.isBlank() || currentAddr == "https://manga.gokalpgoksu.com") {
+            writeProfileAddresses(
+                komgaProfile,
+                FlugelConnectionBootstrap.KOMGA_PUBLIC_URL,
+                FlugelConnectionBootstrap.KOMGA_INTERNAL_URL,
+            )
         }
         if (!store.contains("Default libraries")) {
             store.edit().putStringSet("Default libraries", setOf("0QE7VDJHCE943")).apply()
@@ -90,12 +95,7 @@ fun initializeFlugelConnections(freshInstall: Boolean) {
             )
         }
         val preconfiguredKomgaKey = BuildConfig.FLUGEL_KOMGA_API_KEY
-        val hasKomgaCreds = if (store.getString("AuthMode", "Credentials") == "ApiKey") {
-            !store.getString("API key", store.getString("Api key", "")).isNullOrBlank()
-        } else {
-            !store.getString("Username", "").isNullOrBlank() && !store.getString("Password", "").isNullOrBlank()
-        }
-        if (!hasKomgaCreds && preconfiguredKomgaKey.isNotBlank()) {
+        if (preconfiguredKomgaKey.isNotBlank()) {
             store.edit()
                 .putString("AuthMode", "ApiKey")
                 .putString("API key", preconfiguredKomgaKey)
@@ -104,11 +104,22 @@ fun initializeFlugelConnections(freshInstall: Boolean) {
     }
 
     if (kavitaProfile != null) {
+        if (connections.bookConnectionId.get() == 0L) {
+            connections.bookConnectionId.set(kavitaProfile.id)
+        }
         val prefs = koharia.source.kavita.KavitaPreferences(kavitaProfile.id)
+        val currentKavitaAddr = prefs.address.trim()
+        if (currentKavitaAddr.isBlank() || currentKavitaAddr == "https://ln.gokalpgoksu.com") {
+            writeProfileAddresses(
+                kavitaProfile,
+                FlugelConnectionBootstrap.KAVITA_PUBLIC_URL,
+                FlugelConnectionBootstrap.KAVITA_INTERNAL_URL,
+            )
+        }
         val preconfiguredKavitaKey = BuildConfig.FLUGEL_KAVITA_API_KEY
-        if (prefs.key.isBlank() && preconfiguredKavitaKey.isNotBlank()) {
+        if (preconfiguredKavitaKey.isNotBlank()) {
             prefs.save(
-                address = "https://ln.gokalpgoksu.com",
+                address = FlugelConnectionBootstrap.KAVITA_PUBLIC_URL,
                 key = preconfiguredKavitaKey,
                 account = koharia.kavita.KavitaAccount(
                     id = 1L,
@@ -117,7 +128,7 @@ fun initializeFlugelConnections(freshInstall: Boolean) {
                     kavitaVersion = "0.9.1.4",
                 ),
             )
-            prefs.internalAddress = "http://192.168.0.15:8295"
+            prefs.internalAddress = FlugelConnectionBootstrap.KAVITA_INTERNAL_URL
             if (prefs.mediaId == 0L) {
                 prefs.mediaId = 2L
             }

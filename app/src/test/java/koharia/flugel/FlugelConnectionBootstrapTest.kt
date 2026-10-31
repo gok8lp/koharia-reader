@@ -28,8 +28,14 @@ class FlugelConnectionBootstrapTest {
         assertEquals(listOf("komga", "kavita"), profiles.map { it.providerId })
         assertEquals(profiles[0].id, connections.activeConnectionId.get())
         assertEquals(profiles[1].id, connections.bookConnectionId.get())
-        assertEquals("https://manga.gokalpgoksu.com" to "http://192.168.0.15:8296", addresses["komga"])
-        assertEquals("https://ln.gokalpgoksu.com" to "http://192.168.0.15:8295", addresses["kavita"])
+        assertEquals(
+            FlugelConnectionBootstrap.KOMGA_PUBLIC_URL to FlugelConnectionBootstrap.KOMGA_INTERNAL_URL,
+            addresses["komga"],
+        )
+        assertEquals(
+            FlugelConnectionBootstrap.KAVITA_PUBLIC_URL to FlugelConnectionBootstrap.KAVITA_INTERNAL_URL,
+            addresses["kavita"],
+        )
         assertEquals(profiles, bootstrap.setupProfiles())
         assertTrue(bootstrap.setupRequested.get())
     }

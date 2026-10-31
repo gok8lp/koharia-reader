@@ -29,8 +29,8 @@ class FlugelConnectionBootstrap(
             LibraryConnectionProfile(connections.allocateConnectionId(), KomgaConnectionProvider.ID, "Flugel Komga"),
             LibraryConnectionProfile(connections.allocateConnectionId(), KavitaConnectionProvider.ID, "Flugel Kavita"),
         )
-        writeAddresses(profiles[0], "https://manga.gokalpgoksu.com", "http://192.168.0.15:8296")
-        writeAddresses(profiles[1], "https://ln.gokalpgoksu.com", "http://192.168.0.15:8295")
+        writeAddresses(profiles[0], KOMGA_PUBLIC_URL, KOMGA_INTERNAL_URL)
+        writeAddresses(profiles[1], KAVITA_PUBLIC_URL, KAVITA_INTERNAL_URL)
         connections.setProfiles(profiles)
         connections.activeConnectionId.set(profiles[0].id)
         connections.bookConnectionId.set(profiles[1].id)
@@ -42,4 +42,11 @@ class FlugelConnectionBootstrap(
 
     fun setupProfiles(): List<LibraryConnectionProfile> = connections.getProfiles()
         .filter { it.id.toString() in profileIds.get() }
+
+    companion object {
+        const val KOMGA_PUBLIC_URL = "https://flugelserver.tail42f1f4.ts.net:8443"
+        const val KOMGA_INTERNAL_URL = "http://192.168.0.15:8296"
+        const val KAVITA_PUBLIC_URL = "https://flugelserver.tail42f1f4.ts.net:10000"
+        const val KAVITA_INTERNAL_URL = "http://192.168.0.15:8295"
+    }
 }

@@ -121,7 +121,9 @@ android {
         }
         create("flugel") {
             dimension = "distribution"
-            applicationIdSuffix = ".flugel"
+            applicationIdSuffix = providers.gradleProperty("flugelAppSuffix").getOrElse(".flugel")
+            manifestPlaceholders["kohariaAppLabel"] =
+                providers.gradleProperty("flugelAppLabel").getOrElse("@string/app_name")
             versionCode = providers.gradleProperty("flugelVersionCode").map(String::toInt).getOrElse(100000)
                 .also { require(it > 0) { "flugelVersionCode must be positive" } }
             buildConfigField("boolean", "FLUGEL_PERSONAL_BUILD", "true")
